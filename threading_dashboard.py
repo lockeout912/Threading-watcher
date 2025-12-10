@@ -20,10 +20,20 @@ watchlist = [
 # -----------------------------------------------
 def get_signals(ticker):
     try:
-        df = yf.download(ticker, period="5d", interval="1m")
+        # Try 1: 1-minute intraday, last 2 days
+df = yf.Ticker(ticker).history(period="2d", interval="1m")
 
-        if df.empty:
-            return None
+# If market is closed or no 1m data, fall back to 5m candles
+if df.empty:
+    df = yf.Ticker(ticker).history(period="5d", interval="5m")
+
+# If still no data, fall back to 1h candles over 1 month
+if df.empty:
+    df = yf.download(ticker, period="1mo", interval="1h")
+
+# If still empty, give up on this ticker
+if df.empty:
+    return None
 
         df["EMA4"] = df["Close"].ewm(span=4).mean()
         df["EMA9"] = df["Close"].ewm(span=9).mean()
