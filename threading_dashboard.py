@@ -19,13 +19,14 @@ watchlist = [
 # GET THREADING SIGNALS (4/9 EMA)
 # -----------------------------------------------
 def get_signals(ticker):
+    def get_signals(ticker):
     try:
         # Try 1: 1-minute intraday, last 2 days
-    df = yf.Ticker(ticker).history(period="2d", interval="1m")
+        df = yf.Ticker(ticker).history(period="2d", interval="1m")
 
-# If market is closed or no 1m data, fall back to 5m candles
-if df.empty:
-    df = yf.Ticker(ticker).history(period="5d", interval="5m")
+        # If market is closed or no 1m data, fall back to 5m candles
+        if df.empty:
+            df = yf.Ticker(ticker).history(period="5d", interval="5m")
 
 # If still no data, fall back to 1h candles over 1 month
 if df.empty:
