@@ -21,7 +21,7 @@ watchlist = [
 def get_signals(ticker):
     try:
         # Try 1: 1-minute intraday, last 2 days
-df = yf.Ticker(ticker).history(period="2d", interval="1m")
+    df = yf.Ticker(ticker).history(period="2d", interval="1m")
 
 # If market is closed or no 1m data, fall back to 5m candles
 if df.empty:
