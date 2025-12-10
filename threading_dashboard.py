@@ -19,7 +19,6 @@ watchlist = [
 # GET THREADING SIGNALS (4/9 EMA)
 # -----------------------------------------------
 def get_signals(ticker):
-    def get_signals(ticker):
     try:
         # Try 1: 1-minute intraday, last 2 days
         df = yf.Ticker(ticker).history(period="2d", interval="1m")
