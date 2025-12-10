@@ -18,7 +18,7 @@ WATCHLIST = [
     "SPY", "QQQ", "TSLA", "NVDA", "AAPL",
     "AMD", "AMZN", "META", "PLTR", "SOFI",
     "GME", "AMC", "RIOT", "MARA", "MSTR",
-    "U", "COIN", "NFLX", "BABA", "DIS",
+    "U", "COIN", "WBD", "BABA", "DIS",
 ]
 
 # -----------------------------
