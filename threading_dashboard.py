@@ -16,7 +16,7 @@ st.set_page_config(
 # -----------------------------
 WATCHLIST = [
     "SPY", "QQQ", "TSLA", "NVDA", "AAPL",
-    "AMD", "AMZN", "META", "PLTR", "SOFI",
+    "AMD", "AMZN", "BTC", "PLTR", "SOFI",
     "GME", "AMC", "RIOT", "MARA", "MSTR",
     "U", "COIN", "WBD", "BABA", "AA",
 ]
