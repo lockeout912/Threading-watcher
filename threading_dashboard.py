@@ -3,209 +3,227 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime
 
-# --------------------------------------------------------------------
+
+# --------------------------------------------------
 # PAGE CONFIG
-# --------------------------------------------------------------------
+# --------------------------------------------------
 st.set_page_config(
-    page_title="Threading Entry/Exit Signal Dashboard",
-    page_icon="🔥",
-    layout="wide",
+    page_title="🔥 Threading + VPD Signal Dashboard",
+    layout="wide"
 )
 
-st.title("🔥 Threading Entry/Exit Signal Dashboard")
+st.title("🔥 Threading + VPD Signal Dashboard")
 st.write(
-    "This dashboard scans a 4/9 EMA threading system across your watchlist "
-    "and flags **ENTRY / EXIT** signals. It also checks a simple "
-    "Volume/Price Divergence (VPD) pattern for extra confirmation."
+    "This dashboard scans a 4/9 EMA threading system **plus** a "
+    "volume-pressure divergence (VPD) check to flag ENTRY / EXIT signals."
 )
 
-# --------------------------------------------------------------------
-# WATCHLIST (EDIT ANYTIME)
-# --------------------------------------------------------------------
+# --------------------------------------------------
+# YOUR WATCHLIST (EDIT THIS ANYTIME)
+# --------------------------------------------------
 watchlist = [
     "SPY", "QQQ", "TSLA", "NVDA", "AAPL",
     "AMD", "AMZN", "META", "PLTR", "SOFI",
     "GME", "AMC", "RIOT", "MARA", "MSTR",
-    "U", "COIN", "NFLX", "BABA", "DIS",
-    "WBD", "BITO",  # BITO = Bitcoin ETF
+    "COIN", "U", "WBD", "BITO", "BTC-USD"
 ]
 
-# --------------------------------------------------------------------
-# HELPERS
-# --------------------------------------------------------------------
-def fetch_price_data(ticker: str):
+
+# --------------------------------------------------
+# DATA FETCHING
+# --------------------------------------------------
+@st.cache_data(ttl=60)
+def fetch_history(ticker: str) -> pd.DataFrame:
     """
-    Try to pull intraday data with several fallbacks so we don't die
-    when the market is closed or 1m data isn't available.
-    """
-    attempts = [
-        ("2d", "1m"),   # very fresh, 1-minute candles
-        ("5d", "5m"),   # fallback: 5-minute candles
-        ("1mo", "1h"),  # last resort: 1-hour candles
-    ]
-
-    for period, interval in attempts:
-        try:
-            df = yf.download(
-                ticker,
-                period=period,
-                interval=interval,
-                progress=False,
-            )
-            if not df.empty:
-                return df
-        except Exception:
-            # just try the next combo
-            continue
-
-    return None
-
-
-def detect_bullish_vpd(df: pd.DataFrame,
-                       price_col: str = "Close",
-                       volume_col: str = "Volume"):
-    """
-    Very simple Volume/Price Divergence (VPD) detector.
-
-    Idea:
-    - Compare the last N candles to the prior window.
-    - If price is grinding up while volume ramps up sharply,
-      we flag it as "ACCUMULATION (Bullish VPD)".
-    - If price is grinding down while volume ramps up sharply,
-      we flag it as "DISTRIBUTION (Bearish VPD)".
-    """
-    if df is None or df.empty:
-        return None
-
-    if price_col not in df.columns or volume_col not in df.columns:
-        return None
-
-    # Use the last 60 candles as "recent"
-    recent = df.tail(60)
-    if recent[volume_col].sum() == 0:
-        return None
-
-    # Reference window = last 200 candles (or all if smaller)
-    ref = df.tail(200)
-
-    # Price change over recent window
-    start_price = recent[price_col].iloc[0]
-    end_price = recent[price_col].iloc[-1]
-    if start_price == 0:
-        return None
-    price_change_pct = (end_price - start_price) / start_price
-
-    # Volume change: recent avg vs ref avg
-    ref_vol_mean = ref[volume_col].mean()
-    recent_vol_mean = recent[volume_col].mean()
-    if ref_vol_mean == 0:
-        return None
-    vol_change_ratio = (recent_vol_mean - ref_vol_mean) / ref_vol_mean
-
-    # Thresholds – you can tweak these
-    MIN_PRICE_MOVE = 0.01     # 1%
-    MIN_VOL_RAMP = 0.5        # +50% vs baseline
-
-    if price_change_pct > MIN_PRICE_MOVE and vol_change_ratio > MIN_VOL_RAMP:
-        return "ACCUMULATION (Bullish VPD)"
-    elif price_change_pct < -MIN_PRICE_MOVE and vol_change_ratio > MIN_VOL_RAMP:
-        return "DISTRIBUTION (Bearish VPD)"
-    else:
-        return None
-
-
-def get_signals(ticker: str):
-    """
-    Pulls data, computes EMA4/EMA9, runs VPD detector,
-    and returns a clean dict for the table.
+    Try to get recent intraday data with fallbacks.
+    Always returns a DataFrame (possibly empty), never raises.
     """
     try:
-        df = fetch_price_data(ticker)
-        if df is None or df.empty:
-            return {
-                "Ticker": ticker,
-                "Price": None,
-                "EMA4": None,
-                "EMA9": None,
-                "Signal": "No data",
-            }
+        # First try: 1-minute for last 2 days
+        df = yf.Ticker(ticker).history(period="2d", interval="1m")
+        if df is not None and not df.empty:
+            return df
 
-        # Keep it light
-        df = df.tail(300)
+        # Fallback: 5-minute for last 5 days
+        df = yf.Ticker(ticker).history(period="5d", interval="5m")
+        if df is not None and not df.empty:
+            return df
 
-        # EMAs
-        df["EMA4"] = df["Close"].ewm(span=4, adjust=False).mean()
-        df["EMA9"] = df["Close"].ewm(span=9, adjust=False).mean()
+        # Fallback: 1-hour for last month
+        df = yf.Ticker(ticker).history(period="1mo", interval="1h")
+        if df is not None and not df.empty:
+            return df
 
-        # VPD label
-        vpd_label = detect_bullish_vpd(df)
+        return pd.DataFrame()
+    except Exception:
+        # Any error, just return empty
+        return pd.DataFrame()
 
-        latest = df.iloc[-1]
-        prev = df.iloc[-2]
 
-        # -----------------------------
-        # EMA-based signal
-        # -----------------------------
-        if latest["EMA4"] > latest["EMA9"] and prev["EMA4"] <= prev["EMA9"]:
-            ema_signal = "EMA ENTRY (Bullish 4/9 cross up)"
-        elif latest["EMA4"] < latest["EMA9"] and prev["EMA4"] >= prev["EMA9"]:
-            ema_signal = "EMA EXIT (Bearish 4/9 cross down)"
-        else:
-            ema_signal = ""
+# --------------------------------------------------
+# INDICATOR CALCS
+# --------------------------------------------------
+def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add EMA4, EMA9, returns, and VPD score inputs.
+    Expects columns: 'Close', 'Volume'.
+    """
+    df = df.copy()
 
-        # -----------------------------
-        # VPD-based signal
-        # -----------------------------
-        if vpd_label is not None:
-            vpd_signal = f"VPD {vpd_label}"
-        else:
-            vpd_signal = ""
+    # EMAs
+    df["EMA4"] = df["Close"].ewm(span=4, adjust=False).mean()
+    df["EMA9"] = df["Close"].ewm(span=9, adjust=False).mean()
 
-        # -----------------------------
-        # Combine into final Signal text
-        # -----------------------------
-        parts = [p for p in (ema_signal, vpd_signal) if p]
-        if parts:
-            signal = " | ".join(parts)
-        else:
-            signal = "No clear signal"
+    # Returns & basic VPD-style signal driver
+    df["ret"] = df["Close"].pct_change()
+    # price * volume direction, gives weight to big-volume moves
+    df["vp"] = df["ret"].fillna(0) * df["Volume"].fillna(0)
 
-        return {
-            "Ticker": ticker,
-            "Price": round(float(latest["Close"]), 2),
-            "EMA4": round(float(latest["EMA4"]), 2),
-            "EMA9": round(float(latest["EMA9"]), 2),
-            "Signal": signal,
-        }
+    return df
 
-    except Exception as e:
-        # Fail gracefully so one bad ticker doesn't kill the app
+
+def get_ema_signal(df: pd.DataFrame) -> str:
+    """
+    4/9 EMA threading signal based on last two candles.
+    """
+    if df.shape[0] < 3:
+        return "No clear EMA signal"
+
+    ema4_now = float(df["EMA4"].iloc[-1])
+    ema9_now = float(df["EMA9"].iloc[-1])
+    ema4_prev = float(df["EMA4"].iloc[-2])
+    ema9_prev = float(df["EMA9"].iloc[-2])
+
+    # Cross up = bullish entry
+    if ema4_now > ema9_now and ema4_prev <= ema9_prev:
+        return "ENTRY (Bullish EMA cross)"
+
+    # Cross down = bearish exit
+    if ema4_now < ema9_now and ema4_prev >= ema9_prev:
+        return "EXIT (Bearish EMA cross)"
+
+    return "No clear EMA signal"
+
+
+def get_vpd_signal(df: pd.DataFrame, lookback: int = 20) -> tuple[float, str]:
+    """
+    Very simple VPD (volume-pressure divergence style) signal.
+    Uses last N bars of vp = return * volume.
+    Returns (vpd_score, signal_text).
+    """
+    if df.shape[0] < lookback + 5:
+        return 0.0, "No clear VPD signal"
+
+    recent = df.tail(lookback).copy()
+
+    # Sum of vp over lookback
+    vpd_score = float(recent["vp"].sum())
+
+    last_ret = float(recent["ret"].iloc[-1])
+
+    # Basic interpretation
+    if vpd_score > 0 and last_ret > 0:
+        vpd_signal = "Bullish VPD (volume backing upside)"
+    elif vpd_score < 0 and last_ret < 0:
+        vpd_signal = "Bearish VPD (volume backing downside)"
+    else:
+        vpd_signal = "No clear VPD signal"
+
+    return vpd_score, vpd_signal
+
+
+# --------------------------------------------------
+# PER-TICKER SCAN
+# --------------------------------------------------
+def scan_ticker(ticker: str) -> dict:
+    """
+    Pull data for one ticker, compute indicators, and
+    return a dict used as one row in the table.
+    """
+    df_raw = fetch_history(ticker)
+
+    if df_raw is None or df_raw.empty:
         return {
             "Ticker": ticker,
             "Price": None,
             "EMA4": None,
             "EMA9": None,
-            "Signal": f"Error: {str(e)}",
+            "VPD Score": None,
+            "EMA Signal": "No data",
+            "VPD Signal": "No data",
+            "Final Signal": "No data"
         }
 
+    df = compute_indicators(df_raw)
 
-# --------------------------------------------------------------------
-# MAIN APP
-# --------------------------------------------------------------------
-st.markdown("### 📈 Scanning **{}** tickers...".format(len(watchlist)))
+    # Latest values
+    last_close = float(df["Close"].iloc[-1])
+    last_ema4 = float(df["EMA4"].iloc[-1])
+    last_ema9 = float(df["EMA9"].iloc[-1])
+
+    ema_signal = get_ema_signal(df)
+    vpd_score, vpd_signal = get_vpd_signal(df)
+
+    # --------------------------------------------------
+    # COMBINE SIGNALS
+    # --------------------------------------------------
+    final_signal = "No clear signal"
+    source = ""
+
+    ema_is_entry = ema_signal.startswith("ENTRY")
+    ema_is_exit = ema_signal.startswith("EXIT")
+    vpd_bull = vpd_signal.startswith("Bullish")
+    vpd_bear = vpd_signal.startswith("Bearish")
+
+    # Strong confluence first
+    if ema_is_entry and vpd_bull:
+        final_signal = "🚀 STRONG ENTRY (EMA + VPD)"
+        source = "EMA + VPD"
+    elif ema_is_exit and vpd_bear:
+        final_signal = "⚠ STRONG EXIT (EMA + VPD)"
+        source = "EMA + VPD"
+    else:
+        # Fall back to whichever is giving a directional read
+        if ema_signal != "No clear EMA signal":
+            final_signal = ema_signal
+            source = "EMA"
+        elif vpd_signal != "No clear VPD signal":
+            final_signal = vpd_signal
+            source = "VPD"
+        else:
+            final_signal = "No clear signal"
+            source = "-"
+
+    # Append source tag so you can see at a glance
+    labeled_final = f"{final_signal}  [{source}]"
+
+    return {
+        "Ticker": ticker,
+        "Price": round(last_close, 2),
+        "EMA4": round(last_ema4, 2),
+        "EMA9": round(last_ema9, 2),
+        "VPD Score": round(vpd_score, 2),
+        "EMA Signal": ema_signal,
+        "VPD Signal": vpd_signal,
+        "Final Signal": labeled_final,
+    }
+
+
+# --------------------------------------------------
+# MAIN DASHBOARD RENDER
+# --------------------------------------------------
+st.subheader(f"🔍 Scanning {len(watchlist)} tickers...")
 
 rows = []
-for symbol in watchlist:
-    row = get_signals(symbol)
+for t in watchlist:
+    row = scan_ticker(t)
     rows.append(row)
 
 signals_df = pd.DataFrame(rows)
 
-st.markdown("## 🔍 Signals")
-st.dataframe(signals_df, use_container_width=True)
-
-st.caption(
-    "Last updated: {} UTC".format(
-        datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    )
+st.dataframe(
+    signals_df,
+    use_container_width=True,
 )
+
+st.caption(f"Last updated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
