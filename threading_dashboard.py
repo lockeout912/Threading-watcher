@@ -7,92 +7,25 @@ from datetime import datetime, time, timezone, timedelta
 # ============================================================
 # PAGE CONFIG
 # ============================================================
-st.set_page_config(page_title="SPY + BTC Signal Engine", layout="wide")
+st.set_page_config(page_title="Lockout Signals • SPY + BTC", layout="wide")
 
 # ============================================================
-# CLEAN WALL STREET UI
+# STYLE (minimal, safe)
 # ============================================================
-st.markdown(
-    """
+st.markdown("""
 <style>
-.stApp{
-  background: #0b1220;
-  color:#e8eefc;
+/* Keep it clean + mobile friendly */
+.block-container { padding-top: 1rem; padding-bottom: 2rem; max-width: 1100px; }
+.small-muted { opacity: 0.75; font-size: 0.85rem; }
+.big-price { font-size: 3.0rem; font-weight: 900; line-height: 1.05; margin-top: -6px; }
+.badge {
+  display:inline-block; padding: 0.35rem 0.65rem; border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.06);
+  font-weight: 900; letter-spacing: 0.2px; font-size: 0.85rem;
 }
-*{-webkit-font-smoothing:antialiased}
-#MainMenu, footer, header {visibility:hidden;}
-
-.wrap{max-width:1100px; margin:0 auto;}
-
-.decision{
-  border:1px solid rgba(255,255,255,0.12);
-  border-radius:20px;
-  padding:18px 18px;
-  background: rgba(255,255,255,0.04);
-  box-shadow: 0 14px 44px rgba(0,0,0,0.40);
-}
-
-.toprow{
-  display:flex; justify-content:space-between; align-items:flex-end; gap:16px;
-}
-.asset{
-  font-size:12px; opacity:0.8; letter-spacing:0.35px; text-transform:uppercase;
-}
-.price{
-  font-size:44px; font-weight:900; letter-spacing:0.5px; line-height:1.05;
-}
-.meta{
-  font-size:12px; opacity:0.75;
-}
-
-.badge{
-  display:inline-block; padding:7px 12px; border-radius:999px;
-  border:1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.06);
-  font-weight:900; letter-spacing:0.35px;
-  text-transform:uppercase; font-size:12px;
-}
-
-.good{color:#6cf2a5}
-.bad{color:#ff6b6b}
-.warn{color:#ffd166}
-.neutral{color:#b9c3d9}
-
-.hr{height:1px; background:rgba(255,255,255,0.12); margin:12px 0;}
-.row{display:flex; gap:12px; flex-wrap:wrap;}
-
-.kpi{
-  flex:1; min-width:220px;
-  border:1px solid rgba(255,255,255,0.10);
-  border-radius:16px;
-  padding:12px 12px;
-  background: rgba(255,255,255,0.03);
-}
-.klabel{font-size:12px; opacity:0.75; text-transform:uppercase; letter-spacing:0.35px;}
-.kvalue{font-size:18px; font-weight:900; margin-top:4px;}
-.khint{font-size:12px; opacity:0.70; margin-top:4px;}
-
-.flow{
-  display:flex; gap:10px; flex-wrap:wrap;
-}
-.step{
-  padding:7px 10px; border-radius:999px;
-  border:1px solid rgba(255,255,255,0.14);
-  background: rgba(255,255,255,0.04);
-  font-size:12px; font-weight:900;
-}
-.stepOn{
-  background: rgba(255,255,255,0.10);
-  border-color: rgba(255,255,255,0.22);
-}
-.note{
-  font-size:14px; opacity:0.92; line-height:1.35;
-}
-.small{font-size:12px; opacity:0.72}
+.hr { height: 1px; background: rgba(255,255,255,0.14); margin: 0.75rem 0; }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
 # ============================================================
 # CONSTANTS
@@ -122,6 +55,7 @@ RVOL_ENTRY_MIN = 1.30
 BANDWIDTH_EXPAND_BARS = 3
 BANDWIDTH_MIN_LIFT = 1.05
 
+
 # ============================================================
 # HELPERS
 # ============================================================
@@ -136,7 +70,7 @@ def fmt(x: float) -> str:
         return "—"
     return f"{x:,.2f}"
 
-@st.cache_data(ttl=20)
+@st.cache_data(ttl=25)
 def fetch_intraday(ticker: str) -> pd.DataFrame:
     try:
         df = yf.Ticker(ticker).history(period=FETCH_PERIOD, interval=INTERVAL)
@@ -150,6 +84,29 @@ def fetch_intraday(ticker: str) -> pd.DataFrame:
     except Exception:
         return pd.DataFrame()
 
+@st.cache_data(ttl=10)
+def fetch_live_price(ticker: str) -> float:
+    """
+    Best-effort 'live-ish' price.
+    yfinance isn't true tick-by-tick, but this helps refresh between candles.
+    """
+    try:
+        t = yf.Ticker(ticker)
+        # fast_info is usually the quickest path
+        fi = getattr(t, "fast_info", None)
+        if fi and isinstance(fi, dict):
+            p = fi.get("last_price") or fi.get("lastPrice") or fi.get("regularMarketPrice")
+            p = safe_float(p)
+            if not np.isnan(p):
+                return p
+        info = t.info if hasattr(t, "info") else {}
+        p = safe_float(info.get("regularMarketPrice"))
+        if not np.isnan(p):
+            return p
+        return np.nan
+    except Exception:
+        return np.nan
+
 def to_tz(dt_index: pd.DatetimeIndex, tz: str) -> pd.DatetimeIndex:
     idx = dt_index
     if idx.tz is None:
@@ -157,6 +114,10 @@ def to_tz(dt_index: pd.DatetimeIndex, tz: str) -> pd.DatetimeIndex:
     return idx.tz_convert(tz)
 
 def filter_session(df: pd.DataFrame, asset_type: str) -> tuple[pd.DataFrame, str]:
+    """
+    SPY: RTH ET 09:30-16:00
+    BTC: UTC day
+    """
     if df.empty:
         return df, ""
 
@@ -165,18 +126,18 @@ def filter_session(df: pd.DataFrame, asset_type: str) -> tuple[pd.DataFrame, str
         df.index = to_tz(df.index, "America/New_York")
         session_date = df.index[-1].date()
         session_id = session_date.isoformat()
+
         start = datetime.combine(session_date, time(9, 30)).replace(tzinfo=df.index.tz)
         end = datetime.combine(session_date, time(16, 0)).replace(tzinfo=df.index.tz)
-        session_df = df[(df.index >= start) & (df.index <= end)].copy()
-        return session_df, session_id
+        return df[(df.index >= start) & (df.index <= end)].copy(), session_id
 
     df.index = to_tz(df.index, "UTC")
     session_date = df.index[-1].date()
     session_id = session_date.isoformat()
+
     start = datetime.combine(session_date, time(0, 0)).replace(tzinfo=df.index.tz)
     end = datetime.combine(session_date, time(23, 59)).replace(tzinfo=df.index.tz)
-    session_df = df[(df.index >= start) & (df.index <= end)].copy()
-    return session_df, session_id
+    return df[(df.index >= start) & (df.index <= end)].copy(), session_id
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
@@ -207,7 +168,6 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     upper = mid + BB_STD * sd
     lower = mid - BB_STD * sd
     df["BB_bw"] = (upper - lower) / mid.replace(0, np.nan)
-
     return df
 
 def bandwidth_state(df: pd.DataFrame) -> tuple[str, float]:
@@ -276,8 +236,9 @@ def compute_levels(df: pd.DataFrame, direction: str) -> dict:
         "usd_low": usd_low, "usd_high": usd_high, "pct_low": pct_low, "pct_high": pct_high
     }
 
+
 # ============================================================
-# SESSION STATE (MARKET-ONLY)
+# SESSION STATE
 # ============================================================
 if "state" not in st.session_state:
     st.session_state.state = {}
@@ -299,30 +260,32 @@ def set_state(key: str, **kwargs):
         s[k] = v
     st.session_state.state[key] = s
 
-# ============================================================
-# HEADER + CONTROLS (CLEAN)
-# ============================================================
-st.markdown('<div class="wrap">', unsafe_allow_html=True)
 
-colA, colB, colC = st.columns([1.1, 1, 1])
-with colA:
+# ============================================================
+# TOP CONTROLS
+# ============================================================
+st.title("Lockout Signals • SPY + BTC")
+
+c1, c2, c3 = st.columns([1.1, 0.9, 1.2])
+with c1:
     asset_key = st.selectbox("Asset", list(ASSETS.keys()), index=0)
-with colB:
+with c2:
     st.button("🔄 Refresh")
-with colC:
-    auto = st.toggle("Auto-refresh (every 20s)", value=False)
+with c3:
+    auto_refresh = st.toggle("Auto-refresh (20s)", value=False)
 
-if auto:
-    st.caption("Auto-refresh is ON.")
+# Optional auto refresh (no extra dependencies)
+if auto_refresh:
+    st.caption("Auto-refresh ON (every 20s).")
     st.experimental_set_query_params(_=str(datetime.now().timestamp()))
-    st.autorefresh(interval=20_000, key="refresh")
+    st.rerun()
 
 asset = ASSETS[asset_key]
 ticker = asset["ticker"]
 atype = asset["type"]
 
 # ============================================================
-# DATA LOAD
+# DATA
 # ============================================================
 df_raw = fetch_intraday(ticker)
 df_sess, session_id = filter_session(df_raw, atype)
@@ -337,7 +300,10 @@ if df.empty or df.shape[0] < 30:
     st.stop()
 
 last = df.iloc[-1]
-current = safe_float(last["Close"])
+close_price = safe_float(last["Close"])
+live_price = fetch_live_price(ticker)
+current = live_price if not np.isnan(live_price) else close_price
+
 vwap = safe_float(last["VWAP"])
 atr = safe_float(last.get("ATR", np.nan))
 rvol = safe_float(last.get("RVOL", np.nan))
@@ -350,15 +316,14 @@ bias = "Mixed"
 if not np.isnan(current) and not np.isnan(vwap):
     bias = "Bullish" if current >= vwap else "Bearish"
 
+
 # ============================================================
-# HEADS UP (SIMPLE)
+# HEADS UP
 # ============================================================
 vol_prev = safe_float(df["Volume"].iloc[-2]) if df.shape[0] >= 2 else np.nan
 vol_now = safe_float(df["Volume"].iloc[-1])
 
-near_vwap = False
-if not np.isnan(atr) and not np.isnan(current) and not np.isnan(vwap):
-    near_vwap = abs(current - vwap) <= (HEADSUP_VWAP_ATR_BAND * atr)
+near_vwap = (not np.isnan(atr) and not np.isnan(current) and not np.isnan(vwap) and abs(current - vwap) <= (HEADSUP_VWAP_ATR_BAND * atr))
 
 momentum_improving = False
 if "EMA9_slope" in df.columns and df["EMA9_slope"].shape[0] >= 5:
@@ -366,15 +331,13 @@ if "EMA9_slope" in df.columns and df["EMA9_slope"].shape[0] >= 5:
     s_prev = safe_float(df["EMA9_slope"].iloc[-3])
     momentum_improving = (not np.isnan(s_now) and not np.isnan(s_prev) and s_now > s_prev)
 
-participation_rising = (
-    not np.isnan(vol_now) and not np.isnan(vol_prev) and vol_now > vol_prev
-    and (np.isnan(rvol) or rvol >= RVOL_HEADSUP_MIN)
-)
+participation_rising = (not np.isnan(vol_now) and not np.isnan(vol_prev) and vol_now > vol_prev and (np.isnan(rvol) or rvol >= RVOL_HEADSUP_MIN))
 
 bw_series = df["BB_bw"].dropna()
 bw_improving = (bw_series.shape[0] >= 3 and safe_float(bw_series.iloc[-1]) > safe_float(bw_series.iloc[-2]))
 
 heads_up = (mkt_state == "Chop" and near_vwap and momentum_improving and participation_rising and bw_improving)
+
 
 # ============================================================
 # CONFIRMED ENTRY ACTIVE
@@ -431,8 +394,9 @@ def caution_for_later(direction: str) -> bool:
         return bool(still and weak >= 2)
     return False
 
+
 # ============================================================
-# STATE MACHINE (CLEAR FLOW)
+# STATE MACHINE
 # ============================================================
 now_utc = datetime.now(timezone.utc)
 s = get_state(asset_key)
@@ -451,7 +415,7 @@ else:
                 status="EXIT / RESET",
                 active_direction=None,
                 reset_until=now_utc + timedelta(minutes=RESET_MINUTES),
-                last_exit_reason=reason,
+                last_exit_reason=reason
             )
         else:
             if active == "Bullish":
@@ -484,126 +448,89 @@ else:
 s = get_state(asset_key)
 status = s["status"]
 active_dir = s.get("active_direction")
-last_exit_reason = s.get("last_exit_reason")
+exit_reason = s.get("last_exit_reason")
+
 
 # ============================================================
-# DECISION TEXT (USER DOESN’T THINK)
+# DECISION OUTPUT (SINGLE SOURCE OF TRUTH)
 # ============================================================
-def status_color(sts: str) -> str:
+def status_box(sts: str):
     if sts == "ENTRY ACTIVE":
-        return "good"
+        return st.success
     if sts in ("CAUTION", "HEADS UP"):
-        return "warn"
+        return st.warning
     if sts in ("EXIT / RESET",):
-        return "bad"
-    return "neutral"
+        return st.error
+    return st.info
 
-def action_script(sts: str, direction: str | None) -> tuple[str, str]:
-    # title, what to do
-    if sts == "ENTRY ACTIVE" and direction:
-        if direction == "Bullish":
-            return "ENTER LONG (still valid)", "Buy calls / long shares while price holds above VWAP. Use Exit-If below."
-        return "ENTER SHORT (still valid)", "Buy puts / short exposure while price holds below VWAP. Use Exit-If below."
-    if sts == "CAUTION" and direction:
-        return "CAUTION (late entry risk)", "If you enter now, size down. Prefer waiting for re-confirmation or a fresh setup."
+def decision_text(sts: str, direction: str | None):
+    if sts == "ENTRY ACTIVE" and direction == "Bullish":
+        return "ENTER LONG (still valid)", "Buy calls / long exposure while price holds ABOVE VWAP. Use Exit-If."
+    if sts == "ENTRY ACTIVE" and direction == "Bearish":
+        return "ENTER SHORT (still valid)", "Buy puts / short exposure while price holds BELOW VWAP. Use Exit-If."
+    if sts == "CAUTION":
+        return "CAUTION (late entry risk)", "If entering now, size down. Prefer re-confirmation or a fresh setup."
     if sts == "HEADS UP":
-        return "HEADS UP (do not enter yet)", "Conditions are building. Wait for ENTRY ACTIVE confirmation."
+        return "HEADS UP (do not enter yet)", "Pressure is building. Wait for ENTRY ACTIVE confirmation."
     if sts == "EXIT / RESET":
-        return "EXIT / STAND DOWN", "Move is done. Don’t chase. Wait for the next ENTRY ACTIVE cycle."
+        why = f" ({exit_reason})" if exit_reason else ""
+        return f"EXIT / STAND DOWN{why}", "Move is done. No chasing. Wait for the next ENTRY ACTIVE cycle."
     if sts == "RESET":
-        return "RESET (cooling off)", "No trades during reset. We’re avoiding chop whipsaws."
+        return "RESET (cooling off)", "No trades during reset. We avoid chop whipsaws."
     if sts == "WAITING":
-        return "WAITING (setup forming)", "Trend exists but confirmation isn’t clean yet. Patience pays."
-    return "STAND DOWN (chop)", "No edge right now. Protect capital. Wait."
+        return "WAITING (setup forming)", "Trend exists but confirmation isn’t clean yet. Patience."
+    return "STAND DOWN (chop)", "No edge right now. Preserve capital and wait."
 
-# ============================================================
-# SINGLE DECISION CARD (CLEAN)
-# ============================================================
 direction = active_dir if active_dir in ("Bullish", "Bearish") else ("Bullish" if bias == "Bullish" else "Bearish")
 levels = compute_levels(df, "Bullish" if direction == "Bullish" else "Bearish")
 
-title, instruction = action_script(status, active_dir)
-badge_cls = status_color(status)
+title, instruction = decision_text(status, active_dir)
+
+# ============================================================
+# MAIN VIEW (CLEAN, MOBILE-FIRST)
+# ============================================================
+topL, topR = st.columns([1.35, 1])
+
+with topL:
+    st.markdown(f"**{asset_key} • {ticker} • {INTERVAL} • Session {session_id}**")
+    st.markdown(f'<div class="big-price">{fmt(current)}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="small-muted">Last candle time: {df.index[-1]}</div>', unsafe_allow_html=True)
+
+with topR:
+    st.markdown(f'<span class="badge">{status}</span>', unsafe_allow_html=True)
+    st.markdown(f"**{title}**")
+    status_box(status)(instruction)
+
+st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
+
+k1, k2, k3 = st.columns(3)
 
 entry_line = f"Above {fmt(levels['entry'])}" if direction == "Bullish" else f"Below {fmt(levels['entry'])}"
 exit_line  = f"Below {fmt(levels['exit_if'])}" if direction == "Bullish" else f"Above {fmt(levels['exit_if'])}"
 
-tlo, thi = fmt(levels["target_low"]), fmt(levels["target_high"])
-pct_txt = f"{levels['pct_low']:+.2f}% to {levels['pct_high']:+.2f}%"
-usd_txt = f"{levels['usd_low']:+.2f} to {levels['usd_high']:+.2f}"
+k1.metric("Entry Rule (VWAP)", entry_line)
+k2.metric("Target Zone", f"{fmt(levels['target_low'])} → {fmt(levels['target_high'])}")
+k3.metric("Exit-If", exit_line)
 
-flow_steps = ["HEADS UP", "ENTRY ACTIVE", "CAUTION", "EXIT / RESET", "RESET"]
-def step_on(step: str) -> str:
-    return "step stepOn" if status == step else "step"
+st.caption(f"Move: {levels['pct_low']:+.2f}% to {levels['pct_high']:+.2f}%  |  {levels['usd_low']:+.2f} to {levels['usd_high']:+.2f}")
 
-flow_html = "".join([f'<span class="{step_on(x)}">{x}</span>' for x in flow_steps])
-
-why_one_liner = f"Trend={mkt_state} • VWAP={vwap_side} • Mom={mom} • RVOL={('—' if np.isnan(rvol) else f'{rvol:.2f}')}"
-if status == "EXIT / RESET" and last_exit_reason:
-    why_one_liner = f"Exit reason: {last_exit_reason}"
-
-st.markdown(
-    f"""
-<div class="wrap">
-  <div class="decision">
-    <div class="toprow">
-      <div>
-        <div class="asset">{asset_key} • {ticker} • {INTERVAL} • Session {session_id}</div>
-        <div class="price">{fmt(current)}</div>
-        <div class="meta">Last candle time: {df.index[-1]}</div>
-      </div>
-      <div style="text-align:right;">
-        <div class="badge {badge_cls}">{status}</div><br>
-        <div style="margin-top:10px;" class="badge neutral">{title}</div>
-      </div>
-    </div>
-
-    <div class="hr"></div>
-
-    <div class="note"><b>What to do:</b> {instruction}</div>
-    <div class="small" style="margin-top:6px;">{why_one_liner}</div>
-
-    <div class="hr"></div>
-
-    <div class="row">
-      <div class="kpi">
-        <div class="klabel">Entry Rule</div>
-        <div class="kvalue good">{entry_line}</div>
-        <div class="khint">Confirmation uses 2-bar VWAP hold + Trend + Momentum + Participation.</div>
-      </div>
-
-      <div class="kpi">
-        <div class="klabel">Target Zone</div>
-        <div class="kvalue neutral">{tlo} – {thi}</div>
-        <div class="khint">{pct_txt} / {usd_txt}</div>
-      </div>
-
-      <div class="kpi">
-        <div class="klabel">Exit-If</div>
-        <div class="kvalue bad">{exit_line}</div>
-        <div class="khint">Primary: VWAP flips. Backup: ATR emergency stop.</div>
-      </div>
-    </div>
-
-    <div class="hr"></div>
-
-    <div class="flow">{flow_html}</div>
-    <div class="small" style="margin-top:10px;">Signals are session-based. No confusion, no long-term mixing.</div>
-  </div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
+st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
 # ============================================================
-# OPTIONAL: ADVANCED DETAILS (HIDDEN)
+# ENGINE READOUT (always visible, simple)
 # ============================================================
-with st.expander("Advanced (optional)", expanded=False):
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("VWAP", fmt(vwap))
-    c2.metric("ATR", fmt(atr))
-    c3.metric("RVOL", "—" if np.isnan(rvol) else f"{rvol:.2f}")
-    c4.metric("BB Width", "—" if np.isnan(bw_now) else f"{bw_now:.4f}")
+st.subheader("Engine Readout (why the decision is what it is)")
 
-st.caption("Heads Up ≠ Entry. ENTRY ACTIVE = still tradable. CAUTION = late entry risk. EXIT/RESET = move ended, wait.")
-st.markdown("</div>", unsafe_allow_html=True)
+r1, r2, r3, r4 = st.columns(4)
+r1.metric("Bias", bias)
+r2.metric("Market State", mkt_state)
+r3.metric("VWAP Confirm", vwap_side)
+r4.metric("Momentum", mom)
+
+r5, r6, r7, r8 = st.columns(4)
+r5.metric("VWAP", fmt(vwap))
+r6.metric("ATR", fmt(atr))
+r7.metric("RVOL", "—" if np.isnan(rvol) else f"{rvol:.2f}")
+r8.metric("BB Width", "—" if np.isnan(bw_now) else f"{bw_now:.4f}")
+
+st.caption("Heads Up ≠ Entry. ENTRY ACTIVE = still tradable. CAUTION = late entry risk. EXIT/RESET = move ended—wait.")
