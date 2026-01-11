@@ -82,6 +82,13 @@ def pct_change(a: float, b: float) -> float:
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
+def bias_label(bias: str) -> str:
+    if bias == "Bullish":
+        return "BULLISH → CALLS"
+    if bias == "Bearish":
+        return "BEARISH → PUTS"
+    return "NEUTRAL → STAND DOWN"
+
 # ============================================================
 # DATA FETCHING
 # ============================================================
@@ -129,7 +136,6 @@ def fetch_btc_quote_coinbase() -> dict:
     Returns: {price, fetched_at_utc, source}
     """
     t0 = now_utc()
-    # Using exchange endpoint (simple + quick)
     url = "https://api.exchange.coinbase.com/products/BTC-USD/ticker"
     try:
         r = requests.get(url, timeout=2.5, headers={"User-Agent": "LockoutSignals/1.0"})
@@ -141,7 +147,6 @@ def fetch_btc_quote_coinbase() -> dict:
     except Exception:
         pass
 
-    # Fallback to coinbase v2 spot
     url2 = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
     try:
         r = requests.get(url2, timeout=2.5, headers={"User-Agent": "LockoutSignals/1.0"})
@@ -256,7 +261,7 @@ def momentum_state(df: pd.DataFrame) -> str:
 def compute_levels(df: pd.DataFrame, direction: str) -> dict:
     last = df.iloc[-1]
     current = safe_float(last["Close"])
-    vwap = safe_float(last["VWAP"])
+    vwap = safe_float(last.get("VWAP", np.nan))
     atr = safe_float(last.get("ATR", np.nan))
     if np.isnan(atr) or atr <= 0:
         atr = max(current * 0.003, 0.50)
@@ -376,16 +381,13 @@ last_candle_time = df.index[-1]
 session_open = safe_float(df["Open"].iloc[0]) if df.shape[0] else np.nan
 
 # ============================================================
-# LIVE QUOTE (as-live-as-possible for $0)
+# LIVE QUOTE (as live as possible for $0)
 # ============================================================
-quote = {"price": np.nan, "fetched_at_utc": now_utc(), "source": "unknown"}
-
 if asset_key == "BTC":
     quote = fetch_btc_quote_coinbase()
 else:
     quote = fetch_spy_quote_yf("SPY")
 
-# Store quote history per asset so we can display freshness reliably
 st.session_state.quote_state[asset_key] = quote
 
 current = quote["price"]
@@ -406,12 +408,13 @@ mkt_state, bw_now = bandwidth_state(df)
 vwap_side = vwap_confirmed_side(df)
 mom = momentum_state(df)
 
-# Bias vs VWAP (uses *current* quote if available)
+# Bias vs VWAP
 bias = "Mixed"
 if not np.isnan(current) and not np.isnan(vwap):
     bias = "Bullish" if current >= vwap else "Bearish"
+bias_text = bias_label(bias)
 
-# HOD/LOD (session)
+# HOD/LOD
 hod = safe_float(df["High"].max())
 lod = safe_float(df["Low"].min())
 dist_to_hod = hod - current if not np.isnan(hod) else np.nan
@@ -551,6 +554,8 @@ levels = compute_levels(df, "Bullish" if direction == "Bullish" else "Bearish")
 entry_line = f"Above {fmt(levels['entry'])}" if direction == "Bullish" else f"Below {fmt(levels['entry'])}"
 exit_line  = f"Below {fmt(levels['exit_if'])}" if direction == "Bullish" else f"Above {fmt(levels['exit_if'])}"
 
+range_label = "Upside Range" if direction == "Bullish" else "Downside Range"
+
 title, instruction = decision_text(status, active_dir, exit_reason)
 
 # ============================================================
@@ -589,6 +594,8 @@ with tab_overview:
 
     with right:
         st.markdown("### Decision Ribbon")
+        # My preferred layout: Bias → Status → Action
+        st.write(f"**Directional Bias:** `{bias_text}`")
         st.write(f"**Status:** `{status}`")
         st.write(f"**Action:** {title}")
         status_box(status)(instruction)
@@ -596,11 +603,11 @@ with tab_overview:
         st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
         k1, k2, k3 = st.columns(3)
         k1.metric("Entry Rule", entry_line)
-        k2.metric("Target Zone", f"{fmt(levels['target_low'])} → {fmt(levels['target_high'])}")
+        k2.metric(range_label, f"{fmt(levels['target_low'])} → {fmt(levels['target_high'])}")
         k3.metric("Exit-If", exit_line)
 
         st.caption(
-            f"Expected move: {fmt_pct(levels['pct_low'])} to {fmt_pct(levels['pct_high'])}  "
+            f"{range_label}: {fmt_pct(levels['pct_low'])} to {fmt_pct(levels['pct_high'])}  "
             f"({fmt_delta(levels['usd_low'])} to {fmt_delta(levels['usd_high'])})"
         )
 
@@ -611,6 +618,8 @@ with tab_overview:
 
 with tab_engine:
     st.subheader("Engine Readout (why the ribbon says what it says)")
+    st.write(f"**Directional Bias:** `{bias_text}`")
+
     e1, e2, e3, e4 = st.columns(4)
     e1.metric("Bias (vs VWAP)", bias)
     e2.metric("Regime", mkt_state)
@@ -633,8 +642,9 @@ with tab_engine:
 
     st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
     st.write("**Reality Check (data latency)**")
-    st.write("- **BTC:** Coinbase quote is typically near-live; refresh rate controls how often you see it.")
-    st.write("- **SPY:** yfinance quote can lag. We show quote freshness so you always know what you’re looking at.")
+    st.write(f"- Quote freshness right now: **{freshness_sec:.1f}s** (refresh setting + network + data source)")
+    st.write("- **BTC:** Coinbase is typically near-live.")
+    st.write("- **SPY:** yfinance can lag. We show freshness so you always know what you’re looking at.")
 
 with tab_raw:
     st.subheader("Raw Session Table (last 80 candles)")
