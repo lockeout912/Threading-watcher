@@ -11,15 +11,23 @@ import yfinance as yf
 # ============================================================
 # PAGE CONFIG
 # ============================================================
-st.set_page_config(page_title="Lockout Signals • SPY + BTC", layout="wide")
+st.set_page_config(page_title="Lockout Signals • Command Center", layout="wide")
 
 
 # ============================================================
 # UTIL: MARKET STATUS
 # ============================================================
 def market_status_for(asset: str) -> str:
-    """SPY uses US equities hours; BTC is 24/7."""
-    if asset.upper() in ["BTC", "BTC-USD", "BITCOIN", "ETH", "ETH-USD", "ETHEREUM"]:
+    """US equities hours; crypto is 24/7."""
+    if asset.upper() in [
+        "BTC", "BTC-USD", "BITCOIN",
+        "ETH", "ETH-USD", "ETHEREUM",
+        "XRP", "XRP-USD",
+        "XLM", "XLM-USD",
+        "SOL", "SOL-USD",
+        "ADA", "ADA-USD",
+        "BNB", "BNB-USD"
+    ]:
         return "24/7"
 
     eastern = pytz.timezone("US/Eastern")
@@ -43,21 +51,23 @@ def fetch_intraday(ticker: str, interval: str, period: str) -> pd.DataFrame:
         df = yf.Ticker(ticker).history(
             period=period,
             interval=interval,
-            prepost=True,   # IMPORTANT: helps for BTC, sometimes helps for SPY
+            prepost=True,
             actions=False,
             auto_adjust=False,
         )
         if df is None or df.empty:
             return pd.DataFrame()
-        df = df.copy()
-        df = df.reset_index()
-        # Normalize column name (sometimes it's 'Datetime' or 'Date')
+
+        df = df.copy().reset_index()
+
+        # Normalize timestamp column
         if "Datetime" in df.columns:
             ts_col = "Datetime"
         elif "Date" in df.columns:
             ts_col = "Date"
         else:
             ts_col = df.columns[0]
+
         df = df.rename(columns={ts_col: "ts"})
         df["ts"] = pd.to_datetime(df["ts"])
         return df
@@ -68,9 +78,15 @@ def fetch_intraday(ticker: str, interval: str, period: str) -> pd.DataFrame:
 @st.cache_data(ttl=120)
 def fetch_daily(ticker: str, period: str = "10d") -> pd.DataFrame:
     try:
-        df = yf.Ticker(ticker).history(period=period, interval="1d", actions=False, auto_adjust=False)
+        df = yf.Ticker(ticker).history(
+            period=period,
+            interval="1d",
+            actions=False,
+            auto_adjust=False
+        )
         if df is None or df.empty:
             return pd.DataFrame()
+
         df = df.reset_index()
         if "Date" not in df.columns:
             df = df.rename(columns={df.columns[0]: "Date"})
@@ -81,7 +97,7 @@ def fetch_daily(ticker: str, period: str = "10d") -> pd.DataFrame:
 
 
 def get_yahoo_regular_market_price(ticker: str):
-    """Option B: Try Yahoo's regularMarketPrice (can lag; best-effort)."""
+    """Best-effort price pull (can lag)."""
     try:
         info = yf.Ticker(ticker).info
         p = info.get("regularMarketPrice")
@@ -113,7 +129,6 @@ def add_vwap(df: pd.DataFrame) -> pd.Series:
 
 
 def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
-    """ATR using True Range on provided timeframe."""
     d = df.copy()
     prev_close = d["Close"].shift(1)
     tr = pd.concat(
@@ -128,7 +143,6 @@ def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
 
 
 def slope(series: pd.Series, lookback: int = 8) -> float:
-    """Simple slope proxy: last - value N bars ago."""
     if series is None or len(series) < lookback + 1:
         return 0.0
     return float(series.iloc[-1] - series.iloc[-lookback - 1])
@@ -140,7 +154,7 @@ def slope(series: pd.Series, lookback: int = 8) -> float:
 def compute_levels(symbol: str, df_5m: pd.DataFrame, df_1m: pd.DataFrame):
     levels = {}
 
-    # Prior day levels (SPY mostly; for BTC it'll still compute from daily candles)
+    # Prior day levels
     daily = fetch_daily(symbol, "12d")
     if daily is not None and not daily.empty and len(daily) >= 2:
         prev = daily.iloc[-2]
@@ -148,16 +162,13 @@ def compute_levels(symbol: str, df_5m: pd.DataFrame, df_1m: pd.DataFrame):
         levels["PDL"] = float(prev["Low"])
         levels["PDC"] = float(prev["Close"])
 
-    # Opening Range (first 5 minutes from today's session in df_5m)
+    # Opening Range from today's 5m
     if df_5m is not None and not df_5m.empty:
-        # approximate "session day" by last candle's date
         last_day = df_5m["ts"].iloc[-1].date()
         today = df_5m[df_5m["ts"].dt.date == last_day].copy()
         if not today.empty:
             first_bar = today.iloc[0]
             levels["OPEN"] = float(first_bar["Open"])
-
-            # OR = first 1 bar of 5m (true opening range is often first 5m)
             or_bar = today.iloc[0:1]
             levels["ORH"] = float(or_bar["High"].max())
             levels["ORL"] = float(or_bar["Low"].min())
@@ -176,7 +187,6 @@ def compute_levels(symbol: str, df_5m: pd.DataFrame, df_1m: pd.DataFrame):
 
 
 def nearest_level(levels: dict, price: float):
-    """Find the closest major level and return (name, value, distance)."""
     if not levels:
         return None, None, None
     items = [(k, float(v)) for k, v in levels.items() if v is not None]
@@ -190,7 +200,6 @@ def nearest_level(levels: dict, price: float):
 # BIAS + REGIME (5m + 15m)
 # ============================================================
 def compute_bias_regime(df_5m: pd.DataFrame, df_15m: pd.DataFrame):
-    # Defaults
     bias = "NEUTRAL"
     regime = "RANGE"
 
@@ -213,7 +222,7 @@ def compute_bias_regime(df_5m: pd.DataFrame, df_15m: pd.DataFrame):
         ctx_ok_bull = ema9_15 >= ema21_15
         ctx_ok_bear = ema9_15 <= ema21_15
 
-    # Regime: trend if VWAP slope meaningful and price separated from VWAP
+    # Regime
     if atr5 and atr5 > 0:
         sep = abs(px - vwap)
         if abs(vwap_slope) > 0.12 * atr5 and sep > 0.18 * atr5:
@@ -232,19 +241,13 @@ def compute_bias_regime(df_5m: pd.DataFrame, df_15m: pd.DataFrame):
     else:
         bias = "NEUTRAL"
 
-    # Score (0-100) simple & fast (aggressive leaning)
+    # Score
     score = 0
-    if bias == "BULLISH":
-        score += 55
-    elif bias == "BEARISH":
+    if bias in ["BULLISH", "BEARISH"]:
         score += 55
 
-    if regime == "TREND":
-        score += 15
-    else:
-        score += 5
+    score += 15 if regime == "TREND" else 5
 
-    # Bonus for momentum separation from VWAP
     if atr5 and atr5 > 0:
         score += int(min(30, (abs(px - vwap) / atr5) * 20))
 
@@ -256,14 +259,6 @@ def compute_bias_regime(df_5m: pd.DataFrame, df_15m: pd.DataFrame):
 # TRIGGERS (1m) — reclaim/reject engine
 # ============================================================
 def classify_action(df_1m: pd.DataFrame, df_5m: pd.DataFrame, levels: dict, bias: str):
-    """
-    Returns:
-      action: ENTER / WAIT / CAUTION / EXIT
-      side: CALLS / PUTS / WAIT
-      why: one-liner
-      invalid: price level
-      key_level: (name, value)
-    """
     if df_1m is None or df_1m.empty or len(df_1m) < 40 or df_5m is None or df_5m.empty:
         return "WAIT", "WAIT", "Not enough intraday candles yet.", None, (None, None)
 
@@ -271,57 +266,45 @@ def classify_action(df_1m: pd.DataFrame, df_5m: pd.DataFrame, levels: dict, bias
     vwap = float(df_1m["VWAP"].iloc[-1])
 
     atr5 = float(df_5m["ATR"].iloc[-1]) if pd.notna(df_5m["ATR"].iloc[-1]) else 0.0
-    threshold = (0.18 * atr5) if atr5 and atr5 > 0 else (0.25)
+    threshold = (0.18 * atr5) if atr5 and atr5 > 0 else 0.25
 
-    # Determine the key level “in play” (closest)
     lvl_name, lvl_val, lvl_dist = nearest_level(levels, px)
     if lvl_name is None:
         lvl_name, lvl_val, lvl_dist = "VWAP", vwap, abs(px - vwap)
 
-    # If not near any level, default to VWAP as the “level in play”
     if lvl_dist is None or lvl_dist > threshold:
         lvl_name, lvl_val = "VWAP", vwap
 
-    # 1m micro momentum
     ema9_1 = df_1m["EMA9"]
     ema21_1 = df_1m["EMA21"]
     slope_ema9 = slope(ema9_1, lookback=6)
 
-    # Recent candle behavior around the level
     recent = df_1m.tail(6).copy()
     closes = list(map(float, recent["Close"].values))
     highs = list(map(float, recent["High"].values))
     lows = list(map(float, recent["Low"].values))
 
-    # Helpers: “hold above/below”
     def held_above(level: float, n: int = 3):
         return all(c > level for c in closes[-n:])
 
     def held_below(level: float, n: int = 3):
         return all(c < level for c in closes[-n:])
 
-    # Reclaim / Reject
-    # reclaim = traded below then closes above and holds
     reclaim = (min(lows[-4:]) < lvl_val) and (closes[-1] > lvl_val)
     reject = (max(highs[-4:]) > lvl_val) and (closes[-1] < lvl_val)
 
-    # Aggressive Heads Up
     heads_up_long = (bias in ["BULLISH", "NEUTRAL"]) and reclaim and (closes[-1] > vwap)
     heads_up_short = (bias in ["BEARISH", "NEUTRAL"]) and reject and (closes[-1] < vwap)
 
-    # Confirmed entry
     enter_long = (bias == "BULLISH") and reclaim and held_above(lvl_val, 2) and (ema9_1.iloc[-1] >= ema21_1.iloc[-1])
     enter_short = (bias == "BEARISH") and reject and held_below(lvl_val, 2) and (ema9_1.iloc[-1] <= ema21_1.iloc[-1])
 
-    # Exit logic (simple & decisive)
     exit_long = (closes[-1] < vwap) and (ema9_1.iloc[-1] < ema21_1.iloc[-1])
     exit_short = (closes[-1] > vwap) and (ema9_1.iloc[-1] > ema21_1.iloc[-1])
 
-    # Caution: momentum fades after move starts
     caution_long = (bias == "BULLISH") and (slope_ema9 < 0) and (closes[-1] < float(ema9_1.iloc[-1]))
     caution_short = (bias == "BEARISH") and (slope_ema9 > 0) and (closes[-1] > float(ema9_1.iloc[-1]))
 
-    # Decide
     if enter_long:
         invalid = min(vwap, lvl_val) if lvl_name != "PDL" else levels.get("PDL", vwap)
         return "ENTRY ACTIVE", "CALLS", f"Reclaimed {lvl_name} and held. VWAP aligned.", float(invalid), (lvl_name, float(lvl_val))
@@ -331,12 +314,10 @@ def classify_action(df_1m: pd.DataFrame, df_5m: pd.DataFrame, levels: dict, bias
         return "ENTRY ACTIVE", "PUTS", f"Rejected {lvl_name}. VWAP aligned down.", float(invalid), (lvl_name, float(lvl_val))
 
     if heads_up_long:
-        invalid = vwap
-        return "HEADS UP", "CALLS", f"Testing reclaim at {lvl_name}. Watch hold.", float(invalid), (lvl_name, float(lvl_val))
+        return "HEADS UP", "CALLS", f"Testing reclaim at {lvl_name}. Watch hold.", float(vwap), (lvl_name, float(lvl_val))
 
     if heads_up_short:
-        invalid = vwap
-        return "HEADS UP", "PUTS", f"Testing rejection at {lvl_name}. Watch breakdown.", float(invalid), (lvl_name, float(lvl_val))
+        return "HEADS UP", "PUTS", f"Testing rejection at {lvl_name}. Watch breakdown.", float(vwap), (lvl_name, float(lvl_val))
 
     if bias == "BULLISH" and caution_long:
         return "CAUTION", "CALLS", "Momentum fading — protect gains.", levels.get("VWAP", vwap), (lvl_name, float(lvl_val))
@@ -350,7 +331,6 @@ def classify_action(df_1m: pd.DataFrame, df_5m: pd.DataFrame, levels: dict, bias
     if bias == "BEARISH" and exit_short:
         return "EXIT / RESET", "PUTS", "Reclaimed VWAP + momentum flipped.", levels.get("VWAP", vwap), (lvl_name, float(lvl_val))
 
-    # Neutral / range
     return "WAIT — NO EDGE", ("CALLS" if bias == "BULLISH" else "PUTS" if bias == "BEARISH" else "WAIT"), "No clean reclaim/reject edge yet.", levels.get("VWAP", vwap), (lvl_name, float(lvl_val))
 
 
@@ -359,7 +339,7 @@ def classify_action(df_1m: pd.DataFrame, df_5m: pd.DataFrame, levels: dict, bias
 # ============================================================
 def compute_targets(price: float, bias: str, levels: dict, atr5: float):
     if not atr5 or atr5 <= 0:
-        atr5 = max(0.5, price * 0.001)  # fallback
+        atr5 = max(0.5, price * 0.001)
 
     likely = 0.25 * atr5
     poss = 0.50 * atr5
@@ -374,7 +354,6 @@ def compute_targets(price: float, bias: str, levels: dict, atr5: float):
         t2 = price + poss
         t3 = price + stretch
 
-    # Align “possible” and “stretch” to next meaningful level if it’s nearby
     level_vals = sorted([float(v) for v in levels.values() if v is not None])
     if level_vals:
         if bias == "BEARISH":
@@ -399,8 +378,10 @@ def compute_targets(price: float, bias: str, levels: dict, atr5: float):
 CSS = """
 <style>
 :root{
-  --bg:#0b0f14;
-  --panel:#0f1520;
+  /* ONLY CHANGE: darker desktop background (neutral terminal black) */
+  --bg:#0a0a0a;
+  --panel:#121212;
+
   --text:#e7edf5;
   --muted:#9db0c6;
   --good:#00ff95;
@@ -410,13 +391,14 @@ CSS = """
 }
 
 html, body, [class*="css"] { background-color: var(--bg) !important; }
+section[data-testid="stSidebar"] { background-color: var(--panel) !important; }
 .block-container { padding-top: 0.6rem; }
 
 .ribbon {
   position: sticky;
   top: 0;
   z-index: 9999;
-  background: rgba(10,14,20,0.92);
+  background: rgba(10,10,10,0.92);
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 14px;
   padding: 10px 14px;
@@ -498,15 +480,26 @@ st.markdown(CSS, unsafe_allow_html=True)
 
 
 # ============================================================
-# SIDEBAR CONTROLS
+# CONTROLS
 # ============================================================
-st.title("Lockout Signals • SPY + BTC")
+st.title("Lockout Signals • Command Center")
 
-# ✅ ONLY CHANGE IN THIS ENTIRE FILE: more tickers added here
+# ONLY CHANGE: expanded assets list (XRP/XLM + top liquid names)
 assets = {
+    # Core
     "SPY": "SPY",
-    "BTC": "BTC-USD",
+    "QQQ": "QQQ",
 
+    # Crypto
+    "BTC": "BTC-USD",
+    "Ethereum": "ETH-USD",
+    "XRP": "XRP-USD",
+    "XLM": "XLM-USD",
+    "Solana": "SOL-USD",
+    "Cardano": "ADA-USD",
+    "BNB": "BNB-USD",
+
+    # Your list
     "TSLA": "TSLA",
     "GME": "GME",
     "NVDA": "NVDA",
@@ -520,16 +513,33 @@ assets = {
     "BITO": "BITO",
     "RIOT": "RIOT",
     "MARA": "MARA",
-    "Ethereum": "ETH-USD",
     "MSTR": "MSTR",
     "MSTU": "MSTU",
-    "QQQ": "QQQ",
     "IREN": "IREN",
     "NOK": "NOK",
     "CLSK": "CLSK",
     "Exon": "XOM",
     "OXY": "OXY",
     "SOFI": "SOFI",
+
+    # Top heavily traded / mega-cap liquidity
+    "AAPL": "AAPL",
+    "MSFT": "MSFT",
+    "META": "META",
+    "AMZN": "AMZN",
+    "GOOG": "GOOG",
+    "NFLX": "NFLX",
+    "JPM": "JPM",
+    "BAC": "BAC",
+    "WFC": "WFC",
+    "INTC": "INTC",
+    "DIS": "DIS",
+    "BA": "BA",
+    "KO": "KO",
+    "PFE": "PFE",
+    "NKE": "NKE",
+    "T": "T",
+    "F": "F",
 }
 
 colA, colB, colC = st.columns([1.2, 0.9, 1.0])
@@ -549,13 +559,11 @@ mkt_status = market_status_for(asset_choice)
 # ============================================================
 # BUILD DATA
 # ============================================================
-# Always try to keep intraday windows short and fast
 df_1m = fetch_intraday(symbol, interval="1m", period="2d")
 df_5m = fetch_intraday(symbol, interval="5m", period="5d")
 df_15m = fetch_intraday(symbol, interval="15m", period="10d")
 
-# If 1m is missing (common for SPY off-hours), we still build 5m / 15m and use Yahoo price best-effort
-# Add indicators
+
 def prep(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
@@ -568,11 +576,11 @@ def prep(df: pd.DataFrame) -> pd.DataFrame:
     d["VWAP"] = add_vwap(d) if "Volume" in d.columns else pd.NA
     return d
 
+
 df_1m = prep(df_1m)
 df_5m = prep(df_5m)
 df_15m = prep(df_15m)
 
-# ATR on 5m
 if df_5m is not None and not df_5m.empty:
     df_5m["ATR"] = atr(df_5m, 14)
 else:
@@ -580,12 +588,11 @@ else:
 
 
 # ============================================================
-# PRICE SOURCE (OPEN vs PRE/AFTER)
+# PRICE SOURCE
 # ============================================================
 price = None
 price_source = "Intraday"
 
-# If market open and 1m exists, use latest close
 if mkt_status == "MARKET OPEN" and df_1m is not None and not df_1m.empty:
     price = float(df_1m["Close"].iloc[-1])
     price_source = "Intraday (1m)"
@@ -593,7 +600,6 @@ elif df_1m is not None and not df_1m.empty:
     price = float(df_1m["Close"].iloc[-1])
     price_source = "Last Candle (1m)"
 else:
-    # Try Yahoo regularMarketPrice (best-effort)
     p = get_yahoo_regular_market_price(symbol)
     if p is not None:
         price = float(p)
@@ -610,17 +616,16 @@ else:
 # COMPUTE MAP / BIAS / ACTION / TARGETS
 # ============================================================
 levels = compute_levels(symbol, df_5m, df_1m)
-
 bias, regime, score = compute_bias_regime(df_5m, df_15m)
-
 action, side, why, invalid, (lvl_name, lvl_val) = classify_action(df_1m, df_5m, levels, bias)
 
 atr5 = float(df_5m["ATR"].iloc[-1]) if (df_5m is not None and not df_5m.empty and pd.notna(df_5m["ATR"].iloc[-1])) else 0.0
-t1, t2, t3 = compute_targets(price, bias if bias != "NEUTRAL" else ("BULLISH" if side == "CALLS" else "BEARISH" if side == "PUTS" else "BULLISH"), levels, atr5)
+bias_for_targets = bias if bias != "NEUTRAL" else ("BULLISH" if side == "CALLS" else "BEARISH" if side == "PUTS" else "BULLISH")
+t1, t2, t3 = compute_targets(price, bias_for_targets, levels, atr5)
 
 
 # ============================================================
-# COMMAND RIBBON (scrolling)
+# COMMAND RIBBON
 # ============================================================
 def cls_for_bias(b):
     return "good" if b == "BULLISH" else "bad" if b == "BEARISH" else "warn"
@@ -641,7 +646,10 @@ lvl_txt = f"{lvl_name}:{lvl_val:.2f}" if (lvl_name and lvl_val) else "LEVEL:—"
 inv_txt = f"INVALID:{float(invalid):.2f}" if invalid is not None else "INVALID:—"
 rng_txt = f"TARGETS: {t1:.2f} | {t2:.2f} | {t3:.2f}"
 
-ribbon_msg = f"NOW: {action} • BIAS: {bias_txt} • {lvl_txt} • {rng_txt} • {inv_txt} • SCORE:{score}/100 • {mkt_status} • PRICE:{price:.2f} ({price_source}) • "
+ribbon_msg = (
+    f"NOW: {action} • BIAS: {bias_txt} • {lvl_txt} • {rng_txt} • {inv_txt} • "
+    f"SCORE:{score}/100 • {mkt_status} • PRICE:{price:.2f} ({price_source}) • "
+)
 
 st.markdown(
     f"""
@@ -658,22 +666,10 @@ st.markdown(
 # ============================================================
 # HERO COMMAND CENTER
 # ============================================================
-def cls_for_action(a):
-    if "ENTRY ACTIVE" in a:
-        return "good"
-    if "HEADS UP" in a:
-        return "cyan"
-    if "CAUTION" in a:
-        return "warn"
-    if "EXIT" in a:
-        return "bad"
-    return "warn"
-
 price_color = "good" if bias == "BULLISH" else "bad" if bias == "BEARISH" else "warn"
 action_color = cls_for_action(action)
 
 status_color = "good" if mkt_status == "MARKET OPEN" else "warn" if mkt_status == "PRE-MARKET" else "cyan" if mkt_status == "24/7" else "warn"
-
 side_line = "CALLS" if side == "CALLS" else "PUTS" if side == "PUTS" else "WAIT"
 
 st.markdown(
@@ -694,7 +690,7 @@ st.markdown(
 
       <div class="targets">
         <div class="label">EXPECTED MOVE (FROM HERE)</div>
-        <div class="val {cls_for_bias(bias if bias!='NEUTRAL' else 'BULLISH')}">
+        <div class="val {cls_for_bias(bias_for_targets)}">
           LIKELY {t1:,.2f} &nbsp; | &nbsp; POSS {t2:,.2f} &nbsp; | &nbsp; STRETCH {t3:,.2f}
         </div>
       </div>
@@ -710,7 +706,7 @@ st.markdown(
 
 
 # ============================================================
-# FAST READOUT (no clutter)
+# FAST READOUT
 # ============================================================
 st.write("")
 c1, c2, c3, c4 = st.columns(4)
@@ -729,8 +725,9 @@ with c3:
 with c4:
     st.metric("Map", "PDH/PDL/PDC + OR + VWAP", "")
 
+
 # ============================================================
-# MINI CHART (last ~120 mins)
+# MINI CHART
 # ============================================================
 if df_1m is not None and not df_1m.empty:
     chart_df = df_1m.tail(140).copy()
@@ -747,14 +744,12 @@ st.caption(f"Last updated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC
 
 
 # ============================================================
-# AUTO REFRESH (simple + reliable)
+# REFRESH
 # ============================================================
-# Trigger refresh if button clicked
 if refresh_now:
     st.cache_data.clear()
     st.rerun()
 
-# Auto-refresh loop (best-effort)
 if auto:
     time.sleep(int(refresh_s))
     st.rerun()
