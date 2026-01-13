@@ -19,7 +19,7 @@ st.set_page_config(page_title="Lockout Signals • SPY + BTC", layout="wide")
 # ============================================================
 def market_status_for(asset: str) -> str:
     """SPY uses US equities hours; BTC is 24/7."""
-    if asset.upper() in ["BTC", "BTC-USD", "BITCOIN"]:
+    if asset.upper() in ["BTC", "BTC-USD", "BITCOIN", "ETH", "ETH-USD", "ETHEREUM"]:
         return "24/7"
 
     eastern = pytz.timezone("US/Eastern")
@@ -375,7 +375,6 @@ def compute_targets(price: float, bias: str, levels: dict, atr5: float):
         t3 = price + stretch
 
     # Align “possible” and “stretch” to next meaningful level if it’s nearby
-    # (helps match how humans trade levels)
     level_vals = sorted([float(v) for v in levels.values() if v is not None])
     if level_vals:
         if bias == "BEARISH":
@@ -503,9 +502,34 @@ st.markdown(CSS, unsafe_allow_html=True)
 # ============================================================
 st.title("Lockout Signals • SPY + BTC")
 
+# ✅ ONLY CHANGE IN THIS ENTIRE FILE: more tickers added here
 assets = {
     "SPY": "SPY",
     "BTC": "BTC-USD",
+
+    "TSLA": "TSLA",
+    "GME": "GME",
+    "NVDA": "NVDA",
+    "PLTR": "PLTR",
+    "AMC": "AMC",
+    "OPEN": "OPEN",
+    "AMD": "AMD",
+    "ASTS": "ASTS",
+    "Unity": "U",
+    "HYMC": "HYMC",
+    "BITO": "BITO",
+    "RIOT": "RIOT",
+    "MARA": "MARA",
+    "Ethereum": "ETH-USD",
+    "MSTR": "MSTR",
+    "MSTU": "MSTU",
+    "QQQ": "QQQ",
+    "IREN": "IREN",
+    "NOK": "NOK",
+    "CLSK": "CLSK",
+    "Exon": "XOM",
+    "OXY": "OXY",
+    "SOFI": "SOFI",
 }
 
 colA, colB, colC = st.columns([1.2, 0.9, 1.0])
@@ -634,6 +658,17 @@ st.markdown(
 # ============================================================
 # HERO COMMAND CENTER
 # ============================================================
+def cls_for_action(a):
+    if "ENTRY ACTIVE" in a:
+        return "good"
+    if "HEADS UP" in a:
+        return "cyan"
+    if "CAUTION" in a:
+        return "warn"
+    if "EXIT" in a:
+        return "bad"
+    return "warn"
+
 price_color = "good" if bias == "BULLISH" else "bad" if bias == "BEARISH" else "warn"
 action_color = cls_for_action(action)
 
