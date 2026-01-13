@@ -1,415 +1,725 @@
-# ============================================================
-# LOCKOUT SIGNALS — HIGH-SPEED COMMAND CENTER (AGGRESSIVE v3)
-# SPY + BTC | staged alerts | regime filter | strength score
-# ============================================================
-
+# app.py
 import time
-import numpy as np
+from datetime import datetime, time as dtime
+
 import pandas as pd
+import pytz
 import streamlit as st
 import yfinance as yf
 
-# Optional autorefresh (works if package exists). If missing, manual refresh still works.
-try:
-    from streamlit_autorefresh import st_autorefresh  # pip package: streamlit-autorefresh
-    HAS_AUTOREFRESH = True
-except Exception:
-    HAS_AUTOREFRESH = False
 
 # ============================================================
 # PAGE CONFIG
 # ============================================================
-st.set_page_config(page_title="Lockout Signals • Command Center", layout="wide")
+st.set_page_config(page_title="Lockout Signals • SPY + BTC", layout="wide")
+
 
 # ============================================================
-# UI / STYLE
+# UTIL: MARKET STATUS
 # ============================================================
-st.markdown("""
+def market_status_for(asset: str) -> str:
+    """SPY uses US equities hours; BTC is 24/7."""
+    if asset.upper() in ["BTC", "BTC-USD", "BITCOIN"]:
+        return "24/7"
+
+    eastern = pytz.timezone("US/Eastern")
+    now = datetime.now(eastern).time()
+
+    if dtime(9, 30) <= now <= dtime(16, 0):
+        return "MARKET OPEN"
+    elif dtime(4, 0) <= now < dtime(9, 30):
+        return "PRE-MARKET"
+    else:
+        return "AFTER HOURS"
+
+
+# ============================================================
+# DATA FETCHING
+# ============================================================
+@st.cache_data(ttl=12)
+def fetch_intraday(ticker: str, interval: str, period: str) -> pd.DataFrame:
+    """Fetch intraday candles with best-effort prepost support."""
+    try:
+        df = yf.Ticker(ticker).history(
+            period=period,
+            interval=interval,
+            prepost=True,   # IMPORTANT: helps for BTC, sometimes helps for SPY
+            actions=False,
+            auto_adjust=False,
+        )
+        if df is None or df.empty:
+            return pd.DataFrame()
+        df = df.copy()
+        df = df.reset_index()
+        # Normalize column name (sometimes it's 'Datetime' or 'Date')
+        if "Datetime" in df.columns:
+            ts_col = "Datetime"
+        elif "Date" in df.columns:
+            ts_col = "Date"
+        else:
+            ts_col = df.columns[0]
+        df = df.rename(columns={ts_col: "ts"})
+        df["ts"] = pd.to_datetime(df["ts"])
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=120)
+def fetch_daily(ticker: str, period: str = "10d") -> pd.DataFrame:
+    try:
+        df = yf.Ticker(ticker).history(period=period, interval="1d", actions=False, auto_adjust=False)
+        if df is None or df.empty:
+            return pd.DataFrame()
+        df = df.reset_index()
+        if "Date" not in df.columns:
+            df = df.rename(columns={df.columns[0]: "Date"})
+        df["Date"] = pd.to_datetime(df["Date"])
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+def get_yahoo_regular_market_price(ticker: str):
+    """Option B: Try Yahoo's regularMarketPrice (can lag; best-effort)."""
+    try:
+        info = yf.Ticker(ticker).info
+        p = info.get("regularMarketPrice")
+        if p is None:
+            return None
+        p = float(p)
+        if p <= 0:
+            return None
+        return p
+    except Exception:
+        return None
+
+
+# ============================================================
+# INDICATORS
+# ============================================================
+def add_ema(df: pd.DataFrame, span: int, price_col: str = "Close") -> pd.Series:
+    return df[price_col].ewm(span=span, adjust=False).mean()
+
+
+def add_vwap(df: pd.DataFrame) -> pd.Series:
+    """Session VWAP (cumulative)."""
+    d = df.copy()
+    tp = (d["High"] + d["Low"] + d["Close"]) / 3.0
+    v = d["Volume"].fillna(0)
+    pv = (tp * v).cumsum()
+    vv = v.cumsum().replace(0, pd.NA)
+    return (pv / vv).fillna(method="ffill")
+
+
+def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
+    """ATR using True Range on provided timeframe."""
+    d = df.copy()
+    prev_close = d["Close"].shift(1)
+    tr = pd.concat(
+        [
+            (d["High"] - d["Low"]).abs(),
+            (d["High"] - prev_close).abs(),
+            (d["Low"] - prev_close).abs(),
+        ],
+        axis=1
+    ).max(axis=1)
+    return tr.rolling(n).mean()
+
+
+def slope(series: pd.Series, lookback: int = 8) -> float:
+    """Simple slope proxy: last - value N bars ago."""
+    if series is None or len(series) < lookback + 1:
+        return 0.0
+    return float(series.iloc[-1] - series.iloc[-lookback - 1])
+
+
+# ============================================================
+# LEVELS (THE "MAP")
+# ============================================================
+def compute_levels(symbol: str, df_5m: pd.DataFrame, df_1m: pd.DataFrame):
+    levels = {}
+
+    # Prior day levels (SPY mostly; for BTC it'll still compute from daily candles)
+    daily = fetch_daily(symbol, "12d")
+    if daily is not None and not daily.empty and len(daily) >= 2:
+        prev = daily.iloc[-2]
+        levels["PDH"] = float(prev["High"])
+        levels["PDL"] = float(prev["Low"])
+        levels["PDC"] = float(prev["Close"])
+
+    # Opening Range (first 5 minutes from today's session in df_5m)
+    if df_5m is not None and not df_5m.empty:
+        # approximate "session day" by last candle's date
+        last_day = df_5m["ts"].iloc[-1].date()
+        today = df_5m[df_5m["ts"].dt.date == last_day].copy()
+        if not today.empty:
+            first_bar = today.iloc[0]
+            levels["OPEN"] = float(first_bar["Open"])
+
+            # OR = first 1 bar of 5m (true opening range is often first 5m)
+            or_bar = today.iloc[0:1]
+            levels["ORH"] = float(or_bar["High"].max())
+            levels["ORL"] = float(or_bar["Low"].min())
+
+    # VWAP (from 1m if available else 5m)
+    vwap_now = None
+    if df_1m is not None and not df_1m.empty:
+        vwap_now = float(df_1m["VWAP"].iloc[-1])
+    elif df_5m is not None and not df_5m.empty:
+        vwap_now = float(df_5m["VWAP"].iloc[-1])
+
+    if vwap_now is not None:
+        levels["VWAP"] = vwap_now
+
+    return levels
+
+
+def nearest_level(levels: dict, price: float):
+    """Find the closest major level and return (name, value, distance)."""
+    if not levels:
+        return None, None, None
+    items = [(k, float(v)) for k, v in levels.items() if v is not None]
+    if not items:
+        return None, None, None
+    best = min(items, key=lambda kv: abs(kv[1] - price))
+    return best[0], best[1], abs(best[1] - price)
+
+
+# ============================================================
+# BIAS + REGIME (5m + 15m)
+# ============================================================
+def compute_bias_regime(df_5m: pd.DataFrame, df_15m: pd.DataFrame):
+    # Defaults
+    bias = "NEUTRAL"
+    regime = "RANGE"
+
+    if df_5m is None or df_5m.empty or len(df_5m) < 30:
+        return bias, regime, 0
+
+    px = float(df_5m["Close"].iloc[-1])
+    vwap = float(df_5m["VWAP"].iloc[-1])
+    ema9 = float(df_5m["EMA9"].iloc[-1])
+    ema21 = float(df_5m["EMA21"].iloc[-1])
+    vwap_slope = slope(df_5m["VWAP"], lookback=8)
+    atr5 = float(df_5m["ATR"].iloc[-1]) if pd.notna(df_5m["ATR"].iloc[-1]) else 0.0
+
+    # 15m context filter
+    ctx_ok_bull = True
+    ctx_ok_bear = True
+    if df_15m is not None and not df_15m.empty and len(df_15m) > 20:
+        ema9_15 = float(df_15m["EMA9"].iloc[-1])
+        ema21_15 = float(df_15m["EMA21"].iloc[-1])
+        ctx_ok_bull = ema9_15 >= ema21_15
+        ctx_ok_bear = ema9_15 <= ema21_15
+
+    # Regime: trend if VWAP slope meaningful and price separated from VWAP
+    if atr5 and atr5 > 0:
+        sep = abs(px - vwap)
+        if abs(vwap_slope) > 0.12 * atr5 and sep > 0.18 * atr5:
+            regime = "TREND"
+        else:
+            regime = "RANGE"
+
+    # Bias
+    bull = (px > vwap) and (ema9 >= ema21) and (vwap_slope >= 0)
+    bear = (px < vwap) and (ema9 <= ema21) and (vwap_slope <= 0)
+
+    if bull and ctx_ok_bull:
+        bias = "BULLISH"
+    elif bear and ctx_ok_bear:
+        bias = "BEARISH"
+    else:
+        bias = "NEUTRAL"
+
+    # Score (0-100) simple & fast (aggressive leaning)
+    score = 0
+    if bias == "BULLISH":
+        score += 55
+    elif bias == "BEARISH":
+        score += 55
+
+    if regime == "TREND":
+        score += 15
+    else:
+        score += 5
+
+    # Bonus for momentum separation from VWAP
+    if atr5 and atr5 > 0:
+        score += int(min(30, (abs(px - vwap) / atr5) * 20))
+
+    score = max(0, min(100, score))
+    return bias, regime, score
+
+
+# ============================================================
+# TRIGGERS (1m) — reclaim/reject engine
+# ============================================================
+def classify_action(df_1m: pd.DataFrame, df_5m: pd.DataFrame, levels: dict, bias: str):
+    """
+    Returns:
+      action: ENTER / WAIT / CAUTION / EXIT
+      side: CALLS / PUTS / WAIT
+      why: one-liner
+      invalid: price level
+      key_level: (name, value)
+    """
+    if df_1m is None or df_1m.empty or len(df_1m) < 40 or df_5m is None or df_5m.empty:
+        return "WAIT", "WAIT", "Not enough intraday candles yet.", None, (None, None)
+
+    px = float(df_1m["Close"].iloc[-1])
+    vwap = float(df_1m["VWAP"].iloc[-1])
+
+    atr5 = float(df_5m["ATR"].iloc[-1]) if pd.notna(df_5m["ATR"].iloc[-1]) else 0.0
+    threshold = (0.18 * atr5) if atr5 and atr5 > 0 else (0.25)
+
+    # Determine the key level “in play” (closest)
+    lvl_name, lvl_val, lvl_dist = nearest_level(levels, px)
+    if lvl_name is None:
+        lvl_name, lvl_val, lvl_dist = "VWAP", vwap, abs(px - vwap)
+
+    # If not near any level, default to VWAP as the “level in play”
+    if lvl_dist is None or lvl_dist > threshold:
+        lvl_name, lvl_val = "VWAP", vwap
+
+    # 1m micro momentum
+    ema9_1 = df_1m["EMA9"]
+    ema21_1 = df_1m["EMA21"]
+    slope_ema9 = slope(ema9_1, lookback=6)
+
+    # Recent candle behavior around the level
+    recent = df_1m.tail(6).copy()
+    closes = list(map(float, recent["Close"].values))
+    highs = list(map(float, recent["High"].values))
+    lows = list(map(float, recent["Low"].values))
+
+    # Helpers: “hold above/below”
+    def held_above(level: float, n: int = 3):
+        return all(c > level for c in closes[-n:])
+
+    def held_below(level: float, n: int = 3):
+        return all(c < level for c in closes[-n:])
+
+    # Reclaim / Reject
+    # reclaim = traded below then closes above and holds
+    reclaim = (min(lows[-4:]) < lvl_val) and (closes[-1] > lvl_val)
+    reject = (max(highs[-4:]) > lvl_val) and (closes[-1] < lvl_val)
+
+    # Aggressive Heads Up
+    heads_up_long = (bias in ["BULLISH", "NEUTRAL"]) and reclaim and (closes[-1] > vwap)
+    heads_up_short = (bias in ["BEARISH", "NEUTRAL"]) and reject and (closes[-1] < vwap)
+
+    # Confirmed entry
+    enter_long = (bias == "BULLISH") and reclaim and held_above(lvl_val, 2) and (ema9_1.iloc[-1] >= ema21_1.iloc[-1])
+    enter_short = (bias == "BEARISH") and reject and held_below(lvl_val, 2) and (ema9_1.iloc[-1] <= ema21_1.iloc[-1])
+
+    # Exit logic (simple & decisive)
+    exit_long = (closes[-1] < vwap) and (ema9_1.iloc[-1] < ema21_1.iloc[-1])
+    exit_short = (closes[-1] > vwap) and (ema9_1.iloc[-1] > ema21_1.iloc[-1])
+
+    # Caution: momentum fades after move starts
+    caution_long = (bias == "BULLISH") and (slope_ema9 < 0) and (closes[-1] < float(ema9_1.iloc[-1]))
+    caution_short = (bias == "BEARISH") and (slope_ema9 > 0) and (closes[-1] > float(ema9_1.iloc[-1]))
+
+    # Decide
+    if enter_long:
+        invalid = min(vwap, lvl_val) if lvl_name != "PDL" else levels.get("PDL", vwap)
+        return "ENTRY ACTIVE", "CALLS", f"Reclaimed {lvl_name} and held. VWAP aligned.", float(invalid), (lvl_name, float(lvl_val))
+
+    if enter_short:
+        invalid = max(vwap, lvl_val) if lvl_name != "PDH" else levels.get("PDH", vwap)
+        return "ENTRY ACTIVE", "PUTS", f"Rejected {lvl_name}. VWAP aligned down.", float(invalid), (lvl_name, float(lvl_val))
+
+    if heads_up_long:
+        invalid = vwap
+        return "HEADS UP", "CALLS", f"Testing reclaim at {lvl_name}. Watch hold.", float(invalid), (lvl_name, float(lvl_val))
+
+    if heads_up_short:
+        invalid = vwap
+        return "HEADS UP", "PUTS", f"Testing rejection at {lvl_name}. Watch breakdown.", float(invalid), (lvl_name, float(lvl_val))
+
+    if bias == "BULLISH" and caution_long:
+        return "CAUTION", "CALLS", "Momentum fading — protect gains.", levels.get("VWAP", vwap), (lvl_name, float(lvl_val))
+
+    if bias == "BEARISH" and caution_short:
+        return "CAUTION", "PUTS", "Momentum fading — protect gains.", levels.get("VWAP", vwap), (lvl_name, float(lvl_val))
+
+    if bias == "BULLISH" and exit_long:
+        return "EXIT / RESET", "CALLS", "Lost VWAP + momentum flipped.", levels.get("VWAP", vwap), (lvl_name, float(lvl_val))
+
+    if bias == "BEARISH" and exit_short:
+        return "EXIT / RESET", "PUTS", "Reclaimed VWAP + momentum flipped.", levels.get("VWAP", vwap), (lvl_name, float(lvl_val))
+
+    # Neutral / range
+    return "WAIT — NO EDGE", ("CALLS" if bias == "BULLISH" else "PUTS" if bias == "BEARISH" else "WAIT"), "No clean reclaim/reject edge yet.", levels.get("VWAP", vwap), (lvl_name, float(lvl_val))
+
+
+# ============================================================
+# TARGETS (ATR(5m) + next level alignment)
+# ============================================================
+def compute_targets(price: float, bias: str, levels: dict, atr5: float):
+    if not atr5 or atr5 <= 0:
+        atr5 = max(0.5, price * 0.001)  # fallback
+
+    likely = 0.25 * atr5
+    poss = 0.50 * atr5
+    stretch = 0.75 * atr5
+
+    if bias == "BEARISH":
+        t1 = price - likely
+        t2 = price - poss
+        t3 = price - stretch
+    else:
+        t1 = price + likely
+        t2 = price + poss
+        t3 = price + stretch
+
+    # Align “possible” and “stretch” to next meaningful level if it’s nearby
+    # (helps match how humans trade levels)
+    level_vals = sorted([float(v) for v in levels.values() if v is not None])
+    if level_vals:
+        if bias == "BEARISH":
+            below = [v for v in level_vals if v < price]
+            if below:
+                near = max(below)
+                if abs(near - t2) < (0.35 * atr5):
+                    t2 = near
+        else:
+            above = [v for v in level_vals if v > price]
+            if above:
+                near = min(above)
+                if abs(near - t2) < (0.35 * atr5):
+                    t2 = near
+
+    return float(t1), float(t2), float(t3)
+
+
+# ============================================================
+# UI: CSS + COMMAND RIBBON
+# ============================================================
+CSS = """
 <style>
-body { background-color:#0b0f14; overflow-x:hidden; }
-.block-container { padding-top:6.3rem; max-width:1200px; }
+:root{
+  --bg:#0b0f14;
+  --panel:#0f1520;
+  --text:#e7edf5;
+  --muted:#9db0c6;
+  --good:#00ff95;
+  --bad:#ff4d4d;
+  --warn:#ffc44d;
+  --cyan:#4de3ff;
+}
 
-#command {
-  position:fixed; top:0; left:0; width:100%; height:62px;
-  background:#05080d; border-bottom:2px solid #1f2933;
-  z-index:9999; overflow:hidden;
+html, body, [class*="css"] { background-color: var(--bg) !important; }
+.block-container { padding-top: 0.6rem; }
+
+.ribbon {
+  position: sticky;
+  top: 0;
+  z-index: 9999;
+  background: rgba(10,14,20,0.92);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  overflow: hidden;
 }
 
 .marquee {
-  display:flex; white-space:nowrap;
-  animation:scroll 15s linear infinite;
-  font-size:1.05rem; font-weight:900;
-  padding-left:100%;
+  white-space: nowrap;
+  overflow: hidden;
+  position: relative;
 }
-.marquee span { margin-right:3rem; }
-
-@keyframes scroll {
-  0% { transform:translateX(0); }
-  100% { transform:translateX(-100%); }
+.marquee span {
+  display: inline-block;
+  padding-left: 100%;
+  animation: marquee 14s linear infinite;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  color: var(--text);
+}
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-100%); }
 }
 
-.green { color:#00ff9c; }
-.red { color:#ff4d4d; }
-.gray { color:#cfcfcf; }
-.yellow { color:#ffd166; }
-
-.center { text-align:center; margin-top:22px; }
-.symbol { font-size:1.5rem; opacity:0.85; letter-spacing:1px; }
-.price { font-size:5.6rem; font-weight:950; letter-spacing:-2px; line-height:1.0; }
-.action { font-size:2.0rem; font-weight:950; margin-top:8px; }
-.subline { font-size:1.05rem; margin-top:10px; opacity:0.92; }
-.range { font-size:1.25rem; font-weight:900; margin-top:16px; }
-.why { font-size:0.95rem; opacity:0.62; margin-top:6px; }
-.kpis { margin-top:18px; }
-.smallcap { font-size:0.92rem; opacity:0.65; }
-
-.badge {
+.pill {
   display:inline-block;
-  padding:6px 12px;
-  border:1px solid #24303a;
-  border-radius:999px;
-  margin:0 6px;
-  font-weight:900;
-  font-size:0.95rem;
-  background:#0b0f14;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  font-weight: 800;
+  color: var(--text);
 }
+
+.good { color: var(--good); border-color: rgba(0,255,149,0.35); }
+.bad  { color: var(--bad);  border-color: rgba(255,77,77,0.35); }
+.warn { color: var(--warn); border-color: rgba(255,196,77,0.35); }
+.cyan { color: var(--cyan); border-color: rgba(77,227,255,0.35); }
+
+.hero {
+  text-align:center;
+  padding: 18px 10px 12px 10px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+}
+
+.symbol { font-size: 34px; font-weight: 900; color: rgba(231,237,245,0.72); letter-spacing:2px; }
+.price  { font-size: 86px; line-height: 1.0; font-weight: 1000; margin: 8px 0 10px; }
+.action { font-size: 44px; font-weight: 1000; margin: 6px 0 10px; letter-spacing:1px; }
+
+.subline { font-size: 18px; color: var(--muted); font-weight: 650; margin-top: 6px; }
+.whyline { font-size: 16px; color: rgba(231,237,245,0.75); margin-top: 6px; }
+
+.krow {
+  display:flex;
+  gap:10px;
+  justify-content:center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.hr { height: 1px; background: rgba(255,255,255,0.06); margin: 14px 0; }
+
+.targets{
+  text-align:center;
+  margin-top: 10px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+}
+.targets .label{ color: rgba(231,237,245,0.75); font-weight: 900; }
+.targets .val { font-size: 28px; font-weight: 1000; margin-top: 4px; }
+
+.smallnote { text-align:center; color: rgba(231,237,245,0.55); font-size: 13px; margin-top: 10px; }
 </style>
-""", unsafe_allow_html=True)
+"""
+st.markdown(CSS, unsafe_allow_html=True)
+
 
 # ============================================================
 # SIDEBAR CONTROLS
 # ============================================================
-st.sidebar.header("⚙️ Command Settings")
+st.title("Lockout Signals • SPY + BTC")
 
-asset = st.sidebar.selectbox("Asset", ["SPY", "BTC"], index=0)
-symbol = "SPY" if asset == "SPY" else "BTC-USD"
+assets = {
+    "SPY": "SPY",
+    "BTC": "BTC-USD",
+}
 
-orb_minutes = st.sidebar.selectbox("Opening Range", [3, 5, 10, 15], index=1)
-show_chart = st.sidebar.checkbox("Show chart", value=True)
+colA, colB, colC = st.columns([1.2, 0.9, 1.0])
+with colA:
+    asset_choice = st.selectbox("Asset", list(assets.keys()), index=0)
+with colB:
+    st.write("")
+    refresh_now = st.button("🔄 Refresh now", use_container_width=True)
+with colC:
+    auto = st.toggle("Auto-refresh", value=True)
+    refresh_s = st.selectbox("Refresh rate", [5, 10, 15, 20, 30], index=1)
 
-refresh_seconds = st.sidebar.selectbox("Refresh (seconds)", [5, 10, 15, 20, 30], index=1)
+symbol = assets[asset_choice]
+mkt_status = market_status_for(asset_choice)
 
-auto_refresh = st.sidebar.checkbox("Auto-refresh", value=True)
-if auto_refresh and not HAS_AUTOREFRESH:
-    st.sidebar.warning("Auto-refresh needs `streamlit-autorefresh`. Manual refresh still works.")
-    auto_refresh = False
-
-manual = st.sidebar.button("🔄 Refresh now")
-
-# If autorefresh is available, use it (best UX).
-if auto_refresh and HAS_AUTOREFRESH:
-    st_autorefresh(interval=refresh_seconds * 1000, key="refresh")
 
 # ============================================================
-# DATA FETCH (near-live)
+# BUILD DATA
 # ============================================================
-@st.cache_data(ttl=8)
-def fetch_history(tkr: str) -> pd.DataFrame:
-    # 1m bars, last 5 days. (yfinance can lag; this is best-effort.)
-    df = yf.Ticker(tkr).history(period="5d", interval="1m")
+# Always try to keep intraday windows short and fast
+df_1m = fetch_intraday(symbol, interval="1m", period="2d")
+df_5m = fetch_intraday(symbol, interval="5m", period="5d")
+df_15m = fetch_intraday(symbol, interval="15m", period="10d")
+
+# If 1m is missing (common for SPY off-hours), we still build 5m / 15m and use Yahoo price best-effort
+# Add indicators
+def prep(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
-    return df.dropna()
+    d = df.copy()
+    for c in ["Open", "High", "Low", "Close", "Volume"]:
+        if c not in d.columns:
+            d[c] = pd.NA
+    d["EMA9"] = add_ema(d, 9)
+    d["EMA21"] = add_ema(d, 21)
+    d["VWAP"] = add_vwap(d) if "Volume" in d.columns else pd.NA
+    return d
 
-df = fetch_history(symbol)
+df_1m = prep(df_1m)
+df_5m = prep(df_5m)
+df_15m = prep(df_15m)
 
-if manual:
-    # Bust cache for a forced refresh
-    fetch_history.clear()
-    df = fetch_history(symbol)
-
-if df.empty or len(df) < 120:
-    st.error("Not enough data yet. Try again in a minute.")
-    st.stop()
-
-# ============================================================
-# INDICATORS — FAST + AGGRESSIVE
-# ============================================================
-def rsi(series: pd.Series, length: int = 14) -> pd.Series:
-    delta = series.diff()
-    up = np.where(delta > 0, delta, 0.0)
-    dn = np.where(delta < 0, -delta, 0.0)
-    roll_up = pd.Series(up, index=series.index).ewm(alpha=1/length, adjust=False).mean()
-    roll_dn = pd.Series(dn, index=series.index).ewm(alpha=1/length, adjust=False).mean()
-    rs = roll_up / (roll_dn + 1e-9)
-    return 100 - (100 / (1 + rs))
-
-def roc(series: pd.Series, length: int = 9) -> pd.Series:
-    return (series / series.shift(length) - 1.0) * 100.0
-
-# EMA trend backbone
-df["EMA9"] = df["Close"].ewm(span=9, adjust=False).mean()
-df["EMA21"] = df["Close"].ewm(span=21, adjust=False).mean()
-df["EMA_SLOPE"] = df["EMA9"] - df["EMA9"].shift(3)
-
-# VWAP (session-style approximation using cumulative since dataframe start)
-tp = (df["High"] + df["Low"] + df["Close"]) / 3
-df["VWAP"] = (tp * df["Volume"]).cumsum() / (df["Volume"].cumsum() + 1e-9)
-
-# Volatility expansion
-mid = df["Close"].rolling(20).mean()
-std = df["Close"].rolling(20).std()
-df["BBW"] = ((mid + 2*std) - (mid - 2*std)) / (mid + 1e-9)
-df["BBW_SLOPE"] = df["BBW"] - df["BBW"].shift(3)
-
-# ATR
-tr = np.maximum(
-    df["High"] - df["Low"],
-    np.maximum(abs(df["High"] - df["Close"].shift()),
-               abs(df["Low"] - df["Close"].shift()))
-)
-df["ATR"] = pd.Series(tr, index=df.index).rolling(14).mean()
-
-# Momentum extras (fast)
-df["ROC9"] = roc(df["Close"], 9)
-df["RSI14"] = rsi(df["Close"], 14)
-
-# ============================================================
-# SESSION / LEVELS
-# ============================================================
-last = df.iloc[-1]
-price = float(last["Close"])
-vwap = float(last["VWAP"])
-atr = float(last["ATR"]) if pd.notna(last["ATR"]) else float(df["ATR"].dropna().iloc[-1])
-ema_slope = float(last["EMA_SLOPE"])
-bbw_slope = float(last["BBW_SLOPE"])
-roc9 = float(last["ROC9"]) if pd.notna(last["ROC9"]) else 0.0
-rsi14 = float(last["RSI14"]) if pd.notna(last["RSI14"]) else 50.0
-
-# Today's slice (for OR + session open)
-today = df.index[-1].date()
-day_df = df[df.index.date == today]
-session_open = float(day_df["Open"].iloc[0]) if len(day_df) > 0 else float(df["Open"].iloc[-1])
-
-orb_hi = None
-orb_lo = None
-if len(day_df) >= orb_minutes:
-    orb_hi = float(day_df.iloc[:orb_minutes]["High"].max())
-    orb_lo = float(day_df.iloc[:orb_minutes]["Low"].min())
-
-# Flip count: how often price crosses VWAP recently (chop detector)
-def flip_count(close: pd.Series, anchor: pd.Series, lookback: int = 20) -> int:
-    x = (close - anchor).tail(lookback)
-    s = np.sign(x.fillna(0.0))
-    return int(np.sum(s.values[1:] != s.values[:-1]))
-
-flips = flip_count(df["Close"], df["VWAP"], lookback=20)
-
-# ============================================================
-# REGIME FILTER (TREND / RANGE / CHOP)
-# ============================================================
-# Chop if: lots of flips + low volatility expansion
-bbw = float(last["BBW"]) if pd.notna(last["BBW"]) else 0.0
-vol_expanding = bbw_slope > 0
-
-# No-trade zone around VWAP (aggressive mode still needs a "do not bleed" guardrail)
-no_trade_band = 0.15 * atr
-near_vwap = abs(price - vwap) <= no_trade_band
-
-if flips >= 8 and (bbw < 0.01 or not vol_expanding) and near_vwap:
-    regime = "CHOP"
-elif vol_expanding and flips <= 4 and abs(price - vwap) > no_trade_band:
-    regime = "TREND"
+# ATR on 5m
+if df_5m is not None and not df_5m.empty:
+    df_5m["ATR"] = atr(df_5m, 14)
 else:
-    regime = "RANGE"
+    df_5m = pd.DataFrame()
+
 
 # ============================================================
-# STRENGTH SCORE (0–100) — one number to rule behavior
+# PRICE SOURCE (OPEN vs PRE/AFTER)
 # ============================================================
-# Components normalized in an aggressive, simple way
-vwap_dist = abs(price - vwap) / (atr + 1e-9)          # 0..?
-ema_strength = abs(ema_slope) / (atr + 1e-9)          # slope vs ATR
-mom_strength = abs(roc9) / 0.25                       # 0.25% ROC ~ “meaningful” intraday pop (tunable)
-vol_strength = 1.0 if vol_expanding else 0.0
-flip_penalty = min(flips / 10.0, 1.0)
+price = None
+price_source = "Intraday"
 
-raw = (
-    35 * np.clip(vwap_dist, 0, 2) / 2 +
-    25 * np.clip(ema_strength, 0, 1.5) / 1.5 +
-    20 * np.clip(mom_strength, 0, 2) / 2 +
-    20 * vol_strength
-)
-score = int(np.clip(raw * (1.0 - 0.55 * flip_penalty), 0, 100))
-
-# ============================================================
-# BIAS (CALLS/PUTS) + STAGED STATES (AGGRESSIVE)
-# ============================================================
-bullish_bias = price > vwap
-bias = "BULLISH" if bullish_bias else "BEARISH"
-action = "CALLS" if bullish_bias else "PUTS"
-color = "green" if bullish_bias else "red"
-
-# Early heads up triggers (fast + aggressive)
-# - momentum turns positive/negative OR
-# - reclaim/lose VWAP recently OR
-# - ROC crosses 0 direction
-recent = df.tail(6).copy()
-vwap_side = np.sign((recent["Close"] - recent["VWAP"]).fillna(0.0))
-just_flipped_bias = np.any(vwap_side.values[1:] != vwap_side.values[:-1])
-
-heads_up = False
-if bullish_bias and (roc9 > 0 or ema_slope > 0 or just_flipped_bias):
-    heads_up = True
-if (not bullish_bias) and (roc9 < 0 or ema_slope < 0 or just_flipped_bias):
-    heads_up = True
-
-# Breakout / continuation hints
-above_orh = (orb_hi is not None) and (price > orb_hi)
-below_orl = (orb_lo is not None) and (price < orb_lo)
-
-# Extension / exhaustion
-ext_from_vwap = (price - vwap) / (atr + 1e-9)  # in ATR units (+/-)
-extended = (abs(ext_from_vwap) >= 1.5) or (rsi14 >= 72) or (rsi14 <= 28)
-
-# Momentum roll-over for caution (fast)
-roc_roll = float(recent["ROC9"].iloc[-1] - recent["ROC9"].iloc[-3]) if len(recent) >= 4 and pd.notna(recent["ROC9"].iloc[-3]) else 0.0
-momentum_fading = (bullish_bias and roc_roll < 0) or ((not bullish_bias) and roc_roll > 0)
-
-# --------------------------
-# STATE DECISION TREE
-# --------------------------
-state = "WAIT — NO EDGE"
-sub_instruction = "Stand down. No edge."
-why_line = "No clear alignment."
-
-if regime == "CHOP" or (near_vwap and flips >= 6):
-    state = "WAIT — NO TRADE ZONE"
-    sub_instruction = "Do nothing. Chop around VWAP."
-    why_line = "VWAP flip risk high."
-
+# If market open and 1m exists, use latest close
+if mkt_status == "MARKET OPEN" and df_1m is not None and not df_1m.empty:
+    price = float(df_1m["Close"].iloc[-1])
+    price_source = "Intraday (1m)"
+elif df_1m is not None and not df_1m.empty:
+    price = float(df_1m["Close"].iloc[-1])
+    price_source = "Last Candle (1m)"
 else:
-    # HEADS UP (early)
-    if heads_up:
-        if bullish_bias:
-            state = "HEADS UP — BULLISH (CALLS BIAS)"
-            sub_instruction = "Scout calls. Wait for continuation/pullback confirmation."
-            why_line = "Bias + early momentum."
-        else:
-            state = "HEADS UP — BEARISH (PUTS BIAS)"
-            sub_instruction = "Scout puts. Wait for continuation/pullback confirmation."
-            why_line = "Bias + early momentum."
-
-    # ENTRY ACTIVE thresholds (aggressive)
-    # We allow earlier entries when score is decent OR OR break happens
-    entry_active = False
-    if bullish_bias:
-        entry_active = (score >= 55 and (ema_slope > 0 or roc9 > 0)) or above_orh
+    # Try Yahoo regularMarketPrice (best-effort)
+    p = get_yahoo_regular_market_price(symbol)
+    if p is not None:
+        price = float(p)
+        price_source = "Yahoo Live"
+    elif df_5m is not None and not df_5m.empty:
+        price = float(df_5m["Close"].iloc[-1])
+        price_source = "Last Candle (5m)"
     else:
-        entry_active = (score >= 55 and (ema_slope < 0 or roc9 < 0)) or below_orl
+        price = 0.0
+        price_source = "No Data"
 
-    # TREND CONTINUATION vs PULLBACK ENTRY
-    if entry_active:
-        if score >= 80 and regime == "TREND":
-            state = f"{action} — TREND CONTINUATION"
-            sub_instruction = "Trade with trend. Add on clean pullbacks."
-            why_line = "Strong alignment + expanding volatility."
-        else:
-            state = f"{action} — ENTRY ACTIVE"
-            sub_instruction = "Entry allowed. Prefer pullbacks / reclaims."
-            why_line = "Bias aligned; momentum acceptable."
-
-    # EXTENDED / CAUTION / EXIT overlays
-    if extended and entry_active:
-        state = f"{action} — EXTENDED (MANAGE RISK)"
-        sub_instruction = "Protect profits. Tighten stop. Avoid chasing."
-        why_line = "Extended from VWAP / momentum stretched."
-
-    if momentum_fading and entry_active:
-        state = f"{action} — CAUTION (MOMENTUM FADING)"
-        sub_instruction = "Late entry risk. Scale or wait for reset."
-        why_line = "Momentum rollover warning."
-
-    # Hard EXIT when bias breaks (VWAP is truth line)
-    if bullish_bias and price < vwap:
-        state = "EXIT — BIAS LOST"
-        sub_instruction = "Exit calls. Wait for reclaim."
-        why_line = "Price lost VWAP."
-    if (not bullish_bias) and price > vwap:
-        state = "EXIT — BIAS LOST"
-        sub_instruction = "Exit puts. Wait for reclaim."
-        why_line = "Price reclaimed VWAP."
 
 # ============================================================
-# EXPECTED MOVE (FROM HERE) — Likely / Possible / Stretch
+# COMPUTE MAP / BIAS / ACTION / TARGETS
 # ============================================================
-# Aggressive mode: slightly wider “likely” on TREND days
-mult = 1.2 if regime == "TREND" else 1.0
-likely = atr * mult
-possible = atr * (2.0 * mult)
-stretch = atr * (3.0 * mult)
+levels = compute_levels(symbol, df_5m, df_1m)
 
-if bullish_bias:
-    tgt1 = price + likely
-    tgt2 = price + possible
-    tgt3 = price + stretch
-else:
-    tgt1 = price - likely
-    tgt2 = price - possible
-    tgt3 = price - stretch
+bias, regime, score = compute_bias_regime(df_5m, df_15m)
 
-invalid = vwap  # truth line
+action, side, why, invalid, (lvl_name, lvl_val) = classify_action(df_1m, df_5m, levels, bias)
+
+atr5 = float(df_5m["ATR"].iloc[-1]) if (df_5m is not None and not df_5m.empty and pd.notna(df_5m["ATR"].iloc[-1])) else 0.0
+t1, t2, t3 = compute_targets(price, bias if bias != "NEUTRAL" else ("BULLISH" if side == "CALLS" else "BEARISH" if side == "PUTS" else "BULLISH"), levels, atr5)
+
 
 # ============================================================
-# COMMAND RIBBON (SCROLLING, ALWAYS)
+# COMMAND RIBBON (scrolling)
 # ============================================================
-badge_color = "green" if bullish_bias else "red"
-reg_color = "yellow" if regime == "RANGE" else ("gray" if regime == "CHOP" else badge_color)
+def cls_for_bias(b):
+    return "good" if b == "BULLISH" else "bad" if b == "BEARISH" else "warn"
 
-ribbon = (
-    f"{asset} | {price:.2f} | {bias} | {regime} | SCORE {score}/100 | "
-    f"{state} | "
-    f"LIKELY {tgt1:.2f} | POSS {tgt2:.2f} | STRETCH {tgt3:.2f} | "
-    f"INVALID {invalid:.2f}"
+def cls_for_action(a):
+    if "ENTRY ACTIVE" in a:
+        return "good"
+    if "HEADS UP" in a:
+        return "cyan"
+    if "CAUTION" in a:
+        return "warn"
+    if "EXIT" in a:
+        return "bad"
+    return "warn"
+
+bias_txt = f"{bias} — {'CALLS' if bias=='BULLISH' else 'PUTS' if bias=='BEARISH' else 'WAIT'}"
+lvl_txt = f"{lvl_name}:{lvl_val:.2f}" if (lvl_name and lvl_val) else "LEVEL:—"
+inv_txt = f"INVALID:{float(invalid):.2f}" if invalid is not None else "INVALID:—"
+rng_txt = f"TARGETS: {t1:.2f} | {t2:.2f} | {t3:.2f}"
+
+ribbon_msg = f"NOW: {action} • BIAS: {bias_txt} • {lvl_txt} • {rng_txt} • {inv_txt} • SCORE:{score}/100 • {mkt_status} • PRICE:{price:.2f} ({price_source}) • "
+
+st.markdown(
+    f"""
+    <div class="ribbon">
+      <div class="marquee">
+        <span>{ribbon_msg}{ribbon_msg}</span>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
-st.markdown(f"""
-<div id="command">
-  <div class="marquee {badge_color}">
-    <span>{ribbon}</span><span>{ribbon}</span><span>{ribbon}</span>
-  </div>
-</div>
-""", unsafe_allow_html=True)
 
 # ============================================================
-# MAIN HUD (PRICE DOMINANT)
+# HERO COMMAND CENTER
 # ============================================================
-st.markdown(f"""
-<div class="center">
-  <div class="symbol">{asset}</div>
-  <div class="price {badge_color}">{price:.2f}</div>
-  <div class="action {badge_color}">{state}</div>
+price_color = "good" if bias == "BULLISH" else "bad" if bias == "BEARISH" else "warn"
+action_color = cls_for_action(action)
 
-  <div class="kpis">
-    <span class="badge {badge_color}">{bias} — {action}</span>
-    <span class="badge {reg_color}">REGIME: {regime}</span>
-    <span class="badge gray">SCORE: {score}/100</span>
-  </div>
+status_color = "good" if mkt_status == "MARKET OPEN" else "warn" if mkt_status == "PRE-MARKET" else "cyan" if mkt_status == "24/7" else "warn"
 
-  <div class="range">
-    EXPECTED MOVE (FROM HERE): <span class="{badge_color}">LIKELY {tgt1:.2f}</span>
-    &nbsp; | &nbsp; POSS {tgt2:.2f}
-    &nbsp; | &nbsp; STRETCH {tgt3:.2f}
-  </div>
+side_line = "CALLS" if side == "CALLS" else "PUTS" if side == "PUTS" else "WAIT"
 
-  <div class="subline">{sub_instruction} <b>Invalid:</b> {invalid:.2f}</div>
+st.markdown(
+    f"""
+    <div class="hero">
+      <div class="symbol">{asset_choice} • {price_source}</div>
+      <div class="price {price_color}">{price:,.2f}</div>
+      <div class="action {action_color}">{action}</div>
 
-  <div class="why">{why_line}</div>
-</div>
-""", unsafe_allow_html=True)
+      <div class="krow">
+        <span class="pill {cls_for_bias(bias)}">{bias_txt}</span>
+        <span class="pill {status_color}">{mkt_status}</span>
+        <span class="pill cyan">REGIME: {regime}</span>
+        <span class="pill">SCORE: {score}/100</span>
+      </div>
 
-# Small tactical readout (kept light)
+      <div class="hr"></div>
+
+      <div class="targets">
+        <div class="label">EXPECTED MOVE (FROM HERE)</div>
+        <div class="val {cls_for_bias(bias if bias!='NEUTRAL' else 'BULLISH')}">
+          LIKELY {t1:,.2f} &nbsp; | &nbsp; POSS {t2:,.2f} &nbsp; | &nbsp; STRETCH {t3:,.2f}
+        </div>
+      </div>
+
+      <div class="subline">{'Trade ' + side_line + '.' if side_line!='WAIT' else 'Stand down.'} {inv_txt}</div>
+      <div class="whyline">{why}</div>
+
+      <div class="smallnote">Decision-support only. Not financial advice.</div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# FAST READOUT (no clutter)
+# ============================================================
+st.write("")
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("VWAP", f"{vwap:.2f}", f"{(price - vwap):+.2f}")
-c2.metric("Session Open", f"{session_open:.2f}", f"{(price - session_open):+.2f}")
-c3.metric("ATR(14)", f"{atr:.2f}", f"{ext_from_vwap:+.2f}x from VWAP")
-c4.metric("Momentum", f"ROC9 {roc9:+.2f}%", f"RSI {rsi14:.0f}")
 
-# Opening range levels (if available)
-if orb_hi is not None and orb_lo is not None:
-    st.caption(f"OR({orb_minutes}m) High: {orb_hi:.2f} | OR Low: {orb_lo:.2f} | Flips(20): {flips} | Near VWAP band: ±{no_trade_band:.2f}")
+with c1:
+    st.metric("Key Level In Play", f"{lvl_name if lvl_name else '—'}", f"{lvl_val:.2f}" if lvl_val else "—")
+with c2:
+    vwap_now = None
+    if df_1m is not None and not df_1m.empty:
+        vwap_now = float(df_1m["VWAP"].iloc[-1])
+    elif df_5m is not None and not df_5m.empty:
+        vwap_now = float(df_5m["VWAP"].iloc[-1])
+    st.metric("VWAP", f"{vwap_now:.2f}" if vwap_now else "—", "")
+with c3:
+    st.metric("ATR(5m)", f"{atr5:.2f}" if atr5 else "—", "")
+with c4:
+    st.metric("Map", "PDH/PDL/PDC + OR + VWAP", "")
 
-# Chart (optional)
-if show_chart:
-    st.line_chart(df[["Close", "EMA9", "VWAP"]].tail(240), height=260)
+# ============================================================
+# MINI CHART (last ~120 mins)
+# ============================================================
+if df_1m is not None and not df_1m.empty:
+    chart_df = df_1m.tail(140).copy()
+    chart_df = chart_df.set_index("ts")[["Close", "EMA9", "VWAP"]].dropna()
+    st.line_chart(chart_df, height=260, use_container_width=True)
+elif df_5m is not None and not df_5m.empty:
+    chart_df = df_5m.tail(140).copy()
+    chart_df = chart_df.set_index("ts")[["Close", "EMA9", "VWAP"]].dropna()
+    st.line_chart(chart_df, height=260, use_container_width=True)
+else:
+    st.warning("No chart data available right now.")
 
-st.caption("Decision-support only. Not financial advice.")
+st.caption(f"Last updated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+
+
+# ============================================================
+# AUTO REFRESH (simple + reliable)
+# ============================================================
+# Trigger refresh if button clicked
+if refresh_now:
+    st.cache_data.clear()
+    st.rerun()
+
+# Auto-refresh loop (best-effort)
+if auto:
+    time.sleep(int(refresh_s))
+    st.rerun()
