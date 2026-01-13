@@ -23,7 +23,7 @@ st.set_page_config(
 )
 
 SPONSOR_LINK = "https://join.robinhood.com/alisonp311"
-SPONSOR_IMAGE_PATH = "robinhood.webp"  # put in same folder as app.py
+SPONSOR_IMAGE_PATH = "robinhood.webp"  # put this file in the same folder as app.py
 
 ASSETS = [
     "SPY", "QQQ",
@@ -58,61 +58,225 @@ def norm_symbol(asset: str) -> str:
     return crypto_map.get(asset, asset)
 
 
-def now_local_str():
+def now_utc_str():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 # =========================
-# DATA NORMALIZATION (THE FIX)
+# CSS / THEME (desktop + mobile)
+# =========================
+def inject_theme_css():
+    st.markdown(
+        """
+        <style>
+        html, body, [class*="css"]  {
+            background: #0b0f14 !important;
+            color: #e7edf5 !important;
+        }
+        section[data-testid="stSidebar"] {
+            background: #0a0e13 !important;
+        }
+        .marquee-wrap {
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 14px;
+            padding: 8px 0;
+            background: rgba(0,0,0,0.25);
+            margin: 6px 0 14px 0;
+        }
+        .marquee {
+            display: inline-block;
+            white-space: nowrap;
+            will-change: transform;
+            animation: marquee 16s linear infinite;
+            font-weight: 900;
+            letter-spacing: .8px;
+            font-size: 14px;
+            padding-left: 100%;
+        }
+        @keyframes marquee {
+            0%   { transform: translateX(0); }
+            100% { transform: translateX(-100%); }
+        }
+
+        .command-card {
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 18px;
+            padding: 22px 18px;
+            background: radial-gradient(1200px 500px at 50% 0%, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+            box-shadow: 0 12px 40px rgba(0,0,0,0.55);
+        }
+        .asset-title {
+            font-size: clamp(18px, 2.2vw, 28px);
+            opacity: .9;
+            font-weight: 900;
+            letter-spacing: .6px;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .price {
+            font-size: clamp(58px, 9vw, 96px);
+            font-weight: 900;
+            letter-spacing: 1px;
+            text-align: center;
+            margin: 4px 0 2px 0;
+        }
+        .action {
+            font-size: clamp(26px, 5.8vw, 58px);
+            font-weight: 900;
+            letter-spacing: 1px;
+            text-align: center;
+            margin: 2px 0 10px 0;
+        }
+
+        .pill-row {
+            display:flex;
+            justify-content:center;
+            flex-wrap:wrap;
+            gap:10px;
+            margin-top: 6px;
+        }
+        .pill {
+            display:inline-block;
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-weight: 900;
+            font-size: clamp(12px, 1.6vw, 14px);
+            letter-spacing: .4px;
+            background: rgba(255,255,255,0.02);
+            backdrop-filter: blur(8px);
+        }
+
+        .expected-title {
+            text-align:center;
+            margin-top: 14px;
+            opacity: .75;
+            font-weight: 900;
+            letter-spacing: .8px;
+        }
+        .expected-line {
+            text-align:center;
+            font-size: clamp(15px, 2.3vw, 22px);
+            font-weight: 900;
+            letter-spacing: .8px;
+            margin-top: 6px;
+        }
+        .subline {
+            text-align:center;
+            margin-top: 10px;
+            font-size: 16px;
+            opacity: .85;
+        }
+        .micro {
+            text-align:center;
+            margin-top: 4px;
+            font-size: 14px;
+            opacity: .65;
+        }
+        .footer {
+            opacity: .55;
+            font-size: 12px;
+            margin-top: 10px;
+            text-align: center;
+        }
+
+        /* Color back into tabs/buttons (Streamlit tabs) */
+        button[data-baseweb="tab"] {
+            font-weight: 900 !important;
+            letter-spacing: .4px !important;
+            color: #e7edf5 !important;
+            border-radius: 10px !important;
+        }
+        button[data-baseweb="tab"][aria-selected="true"] {
+            background: rgba(25,255,138,0.10) !important;
+            border-bottom: 2px solid #19ff8a !important;
+        }
+
+        /* Mobile tighten */
+        @media (max-width: 520px) {
+            .command-card { padding: 18px 14px; }
+            .subline { font-size: 15px; }
+            .micro { font-size: 13px; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def inject_autorefresh(seconds: int):
+    # FIX: No "streamlit-autorefresh missing" message because we don't use that package.
+    st.components.v1.html(
+        f"""
+        <script>
+        setTimeout(function() {{
+            window.location.reload();
+        }}, {int(seconds)*1000});
+        </script>
+        """,
+        height=0,
+        scrolling=False,
+    )
+
+
+def badge(label: str, color: str, border: str = None) -> str:
+    border = border or color
+    return f"""<span class="pill" style="border:1px solid {border}; color:{color};">{label}</span>"""
+
+
+def fmt(x, nd=2):
+    try:
+        return f"{float(x):,.{nd}f}"
+    except Exception:
+        return "—"
+
+
+def color_for_action(action: str) -> str:
+    a = (action or "").upper()
+    if "ENTRY ACTIVE" in a:
+        return "#19ff8a"
+    if "CAUTION" in a:
+        return "#ffb020"
+    if "HEADS UP" in a:
+        return "#4dd8ff"
+    if "WAIT" in a:
+        return "#ffdf6e"
+    return "#ffffff"
+
+
+# =========================
+# DATA SHAPING (DO NOT RENDER; JUST KEEP STABLE)
 # =========================
 def normalize_ohlcv(df: pd.DataFrame, symbol: str | None = None) -> pd.DataFrame:
     """
-    yfinance may return MultiIndex columns (e.g., ('High','SPY')).
-    This function guarantees a simple single-index OHLCV frame:
-    Open, High, Low, Close, Volume
+    Keeps your app from blowing up when yfinance returns MultiIndex columns.
+    This is NOT a layout change. It's just making sure OHLCV is always usable.
     """
     if df is None or df.empty:
         return pd.DataFrame()
 
     df = df.copy()
 
-    # If MultiIndex columns, try to select the symbol level.
     if isinstance(df.columns, pd.MultiIndex):
-        # Common shapes:
-        # 1) columns level0 = OHLCV, level1 = ticker
-        # 2) columns level0 = ticker, level1 = OHLCV
         cols0 = df.columns.get_level_values(0).astype(str)
         cols1 = df.columns.get_level_values(1).astype(str)
-
         target = str(symbol) if symbol is not None else None
 
-        # Case A: level1 contains ticker
         if target and (target in set(cols1)):
             df = df.xs(target, axis=1, level=1)
-        # Case B: level0 contains ticker
         elif target and (target in set(cols0)):
             df = df.xs(target, axis=1, level=0)
         else:
-            # Fallback: try to keep OHLCV by dropping one level
-            # Prefer level0 names if they look like OHLCV
             maybe_ohlc = {"Open", "High", "Low", "Close", "Adj Close", "Volume"}
             if set(cols0).intersection(maybe_ohlc):
                 df.columns = cols0
             else:
                 df.columns = cols1
 
-    # Standardize column names
-    rename_map = {
-        "Adj Close": "AdjClose",
-        "adjclose": "AdjClose",
-    }
-    df.rename(columns=rename_map, inplace=True)
-
-    # Keep only the columns we need (and ensure they exist)
     needed = ["Open", "High", "Low", "Close", "Volume"]
     for c in needed:
         if c not in df.columns:
-            # Some crypto feeds might miss Volume; synthesize Volume as 1s
             if c == "Volume":
                 df["Volume"] = 1.0
             else:
@@ -150,7 +314,6 @@ def session_vwap(df: pd.DataFrame) -> pd.Series:
 
 
 def chop_index(df: pd.DataFrame, n: int = 14) -> pd.Series:
-    # CHOP = 100 * log10(sum(TR,n)/(maxH-minL)) / log10(n)
     high = df["High"].rolling(n).max()
     low = df["Low"].rolling(n).min()
     tr = atr(df, 1)
@@ -179,8 +342,7 @@ def fetch_intraday(symbol: str, interval: str) -> pd.DataFrame:
             prepost=True,
             threads=True,
         )
-        df = normalize_ohlcv(df, symbol)
-        return df
+        return normalize_ohlcv(df, symbol)
     except Exception:
         return pd.DataFrame()
 
@@ -189,9 +351,8 @@ def fetch_intraday(symbol: str, interval: str) -> pd.DataFrame:
 def fetch_daily(symbols: list[str]) -> pd.DataFrame:
     if yf is None or not symbols:
         return pd.DataFrame()
-
     try:
-        df = yf.download(
+        return yf.download(
             symbols,
             period="5d",
             interval="1d",
@@ -199,13 +360,46 @@ def fetch_daily(symbols: list[str]) -> pd.DataFrame:
             auto_adjust=False,
             threads=True
         )
-        return df
     except Exception:
         return pd.DataFrame()
 
 
+def build_top_movers():
+    df = fetch_daily([s for s in TOP_MOVERS_UNIVERSE if s])
+    if df is None or df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    try:
+        close = df["Close"]
+    except Exception:
+        return pd.DataFrame(), pd.DataFrame()
+
+    if isinstance(close, pd.Series):
+        close = close.to_frame()
+
+    if len(close) < 2:
+        return pd.DataFrame(), pd.DataFrame()
+
+    prev = close.iloc[-2]
+    last = close.iloc[-1]
+    pct = ((last - prev) / prev.replace(0, np.nan)) * 100.0
+
+    movers = pd.DataFrame({
+        "Ticker": pct.index.astype(str),
+        "%": pct.values,
+        "Last": last.values
+    }).dropna()
+
+    movers["%"] = movers["%"].astype(float)
+    movers["Last"] = movers["Last"].astype(float)
+
+    top_up = movers.sort_values("%", ascending=False).head(10).reset_index(drop=True)
+    top_dn = movers.sort_values("%", ascending=True).head(10).reset_index(drop=True)
+    return top_up, top_dn
+
+
 # =========================
-# ENGINE
+# ENGINE (NO DEBUG UI)
 # =========================
 def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
     out = {
@@ -233,7 +427,7 @@ def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
         out["action"] = "WAIT — NO DATA"
         return out
 
-    # Use 1m close if available for “current-ish” price
+    # current-ish price: prefer 1m last close if available
     if df1 is not None and not df1.empty:
         price = float(df1["Close"].iloc[-1])
         last_time = df1.index[-1]
@@ -244,7 +438,7 @@ def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
     out["price"] = price
     out["last_time"] = str(last_time)
 
-    # Status from candle freshness (simple + robust)
+    # Market status from candle freshness
     try:
         now = datetime.now(timezone.utc)
         lt = last_time.to_pydatetime() if hasattr(last_time, "to_pydatetime") else datetime.now(timezone.utc)
@@ -287,10 +481,7 @@ def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
         out["direction"] = "WAIT"
 
     slope = float((df5["EMA9"].iloc[-1] - df5["EMA9"].iloc[-4]) / max(1e-9, atr5))
-    if chop >= 55:
-        out["regime"] = "RANGE"
-    else:
-        out["regime"] = "TREND" if abs(slope) > 0.15 else "RANGE"
+    out["regime"] = "RANGE" if chop >= 55 else ("TREND" if abs(slope) > 0.15 else "RANGE")
 
     trigger_ok = False
     momentum_ok = False
@@ -337,7 +528,7 @@ def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
             out["one_liner"] = "Stand down. No edge."
             out["why"] = "Bias exists but conditions are weak or choppy."
 
-    # Expected move anchored to current price
+    # Expected move anchored to current-ish price
     if atr5 <= 0 or np.isnan(atr5):
         atr5 = max(0.15, price * 0.001)
 
@@ -363,207 +554,8 @@ def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
     return out
 
 
-def fmt(x, nd=2):
-    try:
-        return f"{float(x):,.{nd}f}"
-    except Exception:
-        return "—"
-
-
-def color_for_action(action: str) -> str:
-    a = (action or "").upper()
-    if "ENTRY ACTIVE" in a:
-        return "#19ff8a"
-    if "CAUTION" in a:
-        return "#ffb020"
-    if "HEADS UP" in a:
-        return "#4dd8ff"
-    if "WAIT" in a:
-        return "#ffdf6e"
-    return "#ffffff"
-
-
-def badge(label: str, color: str, border: str = None) -> str:
-    border = border or color
-    return f"""
-    <span class="pill" style="border:1px solid {border}; color:{color};">
-        {label}
-    </span>
-    """
-
-
-def inject_theme_css():
-    st.markdown(
-        """
-        <style>
-        html, body, [class*="css"]  {
-            background: #0b0f14 !important;
-            color: #e7edf5 !important;
-        }
-        section[data-testid="stSidebar"] {
-            background: #0a0e13 !important;
-        }
-        .pill {
-            display:inline-block;
-            padding: 6px 12px;
-            border-radius: 999px;
-            font-weight: 700;
-            font-size: 14px;
-            letter-spacing: .4px;
-            margin: 4px 6px 0 0;
-            background: rgba(255,255,255,0.02);
-            backdrop-filter: blur(8px);
-        }
-        .command-card {
-            border: 1px solid rgba(255,255,255,0.06);
-            border-radius: 18px;
-            padding: 22px 18px;
-            background: radial-gradient(1200px 500px at 50% 0%, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
-            box-shadow: 0 12px 40px rgba(0,0,0,0.55);
-        }
-        .asset-title {
-            font-size: clamp(18px, 2.2vw, 28px);
-            opacity: .9;
-            font-weight: 800;
-            letter-spacing: .6px;
-            text-align: center;
-            margin-bottom: 10px;
-        }
-        .price {
-            font-size: clamp(60px, 8vw, 92px);
-            font-weight: 900;
-            letter-spacing: 1px;
-            text-align: center;
-            margin: 4px 0 2px 0;
-        }
-        .action {
-            font-size: clamp(28px, 4.6vw, 56px);
-            font-weight: 900;
-            letter-spacing: 1px;
-            text-align: center;
-            margin: 2px 0 10px 0;
-        }
-        .expected-title {
-            text-align:center;
-            margin-top: 14px;
-            opacity: .75;
-            font-weight: 800;
-            letter-spacing: .8px;
-        }
-        .expected-line {
-            text-align:center;
-            font-size: clamp(16px, 2.2vw, 22px);
-            font-weight: 900;
-            letter-spacing: .8px;
-            margin-top: 6px;
-        }
-        .subline {
-            text-align:center;
-            margin-top: 10px;
-            font-size: 16px;
-            opacity: .85;
-        }
-        .micro {
-            text-align:center;
-            margin-top: 4px;
-            font-size: 14px;
-            opacity: .65;
-        }
-        .marquee-wrap {
-            position: relative;
-            overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.07);
-            border-radius: 14px;
-            padding: 8px 0;
-            background: rgba(0,0,0,0.25);
-            margin: 6px 0 14px 0;
-        }
-        .marquee {
-            display: inline-block;
-            white-space: nowrap;
-            will-change: transform;
-            animation: marquee 16s linear infinite;
-            font-weight: 900;
-            letter-spacing: .8px;
-            font-size: 14px;
-            padding-left: 100%;
-        }
-        @keyframes marquee {
-            0%   { transform: translateX(0); }
-            100% { transform: translateX(-100%); }
-        }
-        button[data-baseweb="tab"] {
-            font-weight: 900 !important;
-            letter-spacing: .4px !important;
-            color: #e7edf5 !important;
-        }
-        button[data-baseweb="tab"][aria-selected="true"] {
-            background: rgba(25,255,138,0.10) !important;
-            border-bottom: 2px solid #19ff8a !important;
-        }
-        .footer {
-            opacity: .55;
-            font-size: 12px;
-            margin-top: 10px;
-            text-align: center;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-def inject_autorefresh(seconds: int):
-    st.components.v1.html(
-        f"""
-        <script>
-        setTimeout(function() {{
-            window.location.reload();
-        }}, {int(seconds)*1000});
-        </script>
-        """,
-        height=0,
-        scrolling=False,
-    )
-
-
-def build_top_movers():
-    df = fetch_daily([s for s in TOP_MOVERS_UNIVERSE if s])
-    if df is None or df.empty:
-        return pd.DataFrame(), pd.DataFrame()
-
-    # yfinance multi-symbol daily: MultiIndex columns (field, ticker)
-    try:
-        close = df["Close"]
-    except Exception:
-        return pd.DataFrame(), pd.DataFrame()
-
-    if isinstance(close, pd.Series):
-        close = close.to_frame()
-
-    if len(close) < 2:
-        return pd.DataFrame(), pd.DataFrame()
-
-    prev = close.iloc[-2]
-    last = close.iloc[-1]
-    pct = ((last - prev) / prev.replace(0, np.nan)) * 100.0
-
-    movers = pd.DataFrame({
-        "Ticker": pct.index.astype(str),
-        "%": pct.values,
-        "Last": last.values
-    }).dropna()
-
-    movers["%"] = movers["%"].astype(float)
-    movers["Last"] = movers["Last"].astype(float)
-
-    top_up = movers.sort_values("%", ascending=False).head(10).reset_index(drop=True)
-    top_dn = movers.sort_values("%", ascending=True).head(10).reset_index(drop=True)
-    return top_up, top_dn
-
-
 # =========================
-# UI
+# APP UI
 # =========================
 inject_theme_css()
 st.title("Lockout Signals • Command Center")
@@ -589,13 +581,13 @@ with st.sidebar:
         st.image(SPONSOR_IMAGE_PATH, use_container_width=True)
     except Exception:
         st.caption("(Add `robinhood.webp` to your repo to show the image.)")
-    st.markdown(f"**Sign up for Robinhood** 🎁  \n{SPONSOR_LINK}")
+    st.markdown(f"**Sign up for Robinhood with our link** 🎁  \n{SPONSOR_LINK}")
 
     st.markdown("---")
     st.markdown("### Top Movers (Universe)")
     top_up, top_dn = build_top_movers()
     if top_up.empty:
-        st.caption("Top movers unavailable (data feed may be rate-limited).")
+        st.caption("Top movers unavailable (feed may be rate-limited).")
     else:
         st.markdown("**Top 10 Up**")
         st.dataframe(
@@ -610,15 +602,19 @@ with st.sidebar:
             hide_index=True
         )
 
+# FIX: No missing package warning; we use JS refresh.
 if auto_on:
     inject_autorefresh(refresh_seconds)
 
 symbol = norm_symbol(asset)
 df5 = fetch_intraday(symbol, "5m")
 df1 = fetch_intraday(symbol, "1m")
-
 engine = decide_engine(df5, df1, mode)
+
 action_color = color_for_action(engine["action"])
+bias_chip_color = "#19ff8a" if engine["bias"] == "BULLISH" else ("#ff5a6e" if engine["bias"] == "BEARISH" else "#ffdf6e")
+status_chip_color = "#19ff8a" if engine["status"] == "MARKET OPEN" else "#ffb020"
+regime_chip_color = "#b993ff" if engine["regime"] == "TREND" else "#4dd8ff"
 
 feed = (
     f"PRICE: {fmt(engine['price'])} • ACTION: {engine['action']} • "
@@ -629,6 +625,7 @@ feed = (
     f"LAST: {engine['last_time']} • "
 )
 
+# Scrolling feed (back, always)
 st.markdown(
     f"""
     <div class="marquee-wrap">
@@ -640,10 +637,8 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-bias_chip_color = "#19ff8a" if engine["bias"] == "BULLISH" else ("#ff5a6e" if engine["bias"] == "BEARISH" else "#ffdf6e")
-status_chip_color = "#19ff8a" if engine["status"] == "MARKET OPEN" else "#ffb020"
-regime_chip_color = "#4dd8ff" if engine["regime"] == "RANGE" else "#b993ff"
-
+# IMPORTANT FIX: This entire card is ONE unsafe HTML render.
+# This prevents the "<div>" tags from ever showing on mobile.
 st.markdown(
     f"""
     <div class="command-card">
@@ -651,7 +646,7 @@ st.markdown(
         <div class="price" style="color:{action_color};">{fmt(engine['price'])}</div>
         <div class="action" style="color:{action_color};">{engine['action']}</div>
 
-        <div style="text-align:center;">
+        <div class="pill-row">
             {badge(f"{engine['bias']} — {engine['direction']}", bias_chip_color)}
             {badge(engine["status"], status_chip_color)}
             {badge(f"REGIME: {engine['regime']}", regime_chip_color)}
@@ -670,7 +665,7 @@ st.markdown(
         <div class="micro">{engine["why"]}</div>
 
         <div class="footer">
-            Decision-support only. Not financial advice. Data timestamp: {engine["last_time"]} • {now_local_str()}
+            Decision-support only. Not financial advice. Data timestamp: {engine["last_time"]} • {now_utc_str()}
         </div>
     </div>
     """,
@@ -685,4 +680,7 @@ with k2:
 with k3:
     st.metric("ATR(5m)", fmt(engine["atr_5m"]))
 with k4:
-    st.metric("Chop", f"{int(round(engine['chop']))}/100")
+    try:
+        st.metric("Chop", f"{int(round(float(engine['chop']))):d}/100")
+    except Exception:
+        st.metric("Chop", "—")
