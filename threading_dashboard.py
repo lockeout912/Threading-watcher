@@ -23,42 +23,30 @@ st.set_page_config(
 )
 
 SPONSOR_LINK = "https://join.robinhood.com/alisonp311"
-SPONSOR_IMAGE_PATH = "robinhood.webp"  # Put this in the same repo folder as app.py
+SPONSOR_IMAGE_PATH = "robinhood.webp"  # put in same folder as app.py
 
-# Your asset list (kept broad; doesn’t change your logic/layout)
 ASSETS = [
-    # Core
     "SPY", "QQQ",
-    # Crypto majors
     "BTC", "Ethereum", "XRP", "XLM", "Solana", "Cardano",
-    # Requested list
     "TSLA", "GME", "NVDA", "PLTR", "AMC", "OPEN", "AMD", "ASTS", "U", "HYMC",
     "BITO", "RIOT", "MARA", "MSTR", "MSTU", "IREN", "NOK", "CLSK", "XOM", "OXY", "SOFI",
 ]
 
-# Universe for Top Movers (keep it sane to avoid rate limits)
 TOP_MOVERS_UNIVERSE = sorted(list(set([
-    # Indices / ETFs
     "SPY", "QQQ", "IWM", "DIA", "SMH", "XLK", "XLE",
-    # Mag 7-ish + liquid names
     "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA",
-    # Popular traders’ tape
     "AMD", "PLTR", "SOFI", "MARA", "RIOT", "MSTR", "GME", "AMC", "U", "OPEN",
     "COIN", "ROKU", "NIO", "LCID", "RIVN", "SMCI", "ARM",
-    # Energy
     "XOM", "CVX", "OXY",
-    # Crypto proxies
     "BITO",
 ])))
 
 
 # =========================
-# HELPERS
+# SYMBOL MAPS
 # =========================
 def norm_symbol(asset: str) -> str:
-    """Map display assets to yfinance tickers."""
     asset = asset.strip()
-
     crypto_map = {
         "BTC": "BTC-USD",
         "Ethereum": "ETH-USD",
@@ -67,17 +55,76 @@ def norm_symbol(asset: str) -> str:
         "Solana": "SOL-USD",
         "Cardano": "ADA-USD",
     }
-    if asset in crypto_map:
-        return crypto_map[asset]
-    return asset
+    return crypto_map.get(asset, asset)
 
 
 def now_local_str():
-    # Streamlit cloud may run UTC; show both
-    utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    return utc
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
+# =========================
+# DATA NORMALIZATION (THE FIX)
+# =========================
+def normalize_ohlcv(df: pd.DataFrame, symbol: str | None = None) -> pd.DataFrame:
+    """
+    yfinance may return MultiIndex columns (e.g., ('High','SPY')).
+    This function guarantees a simple single-index OHLCV frame:
+    Open, High, Low, Close, Volume
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.copy()
+
+    # If MultiIndex columns, try to select the symbol level.
+    if isinstance(df.columns, pd.MultiIndex):
+        # Common shapes:
+        # 1) columns level0 = OHLCV, level1 = ticker
+        # 2) columns level0 = ticker, level1 = OHLCV
+        cols0 = df.columns.get_level_values(0).astype(str)
+        cols1 = df.columns.get_level_values(1).astype(str)
+
+        target = str(symbol) if symbol is not None else None
+
+        # Case A: level1 contains ticker
+        if target and (target in set(cols1)):
+            df = df.xs(target, axis=1, level=1)
+        # Case B: level0 contains ticker
+        elif target and (target in set(cols0)):
+            df = df.xs(target, axis=1, level=0)
+        else:
+            # Fallback: try to keep OHLCV by dropping one level
+            # Prefer level0 names if they look like OHLCV
+            maybe_ohlc = {"Open", "High", "Low", "Close", "Adj Close", "Volume"}
+            if set(cols0).intersection(maybe_ohlc):
+                df.columns = cols0
+            else:
+                df.columns = cols1
+
+    # Standardize column names
+    rename_map = {
+        "Adj Close": "AdjClose",
+        "adjclose": "AdjClose",
+    }
+    df.rename(columns=rename_map, inplace=True)
+
+    # Keep only the columns we need (and ensure they exist)
+    needed = ["Open", "High", "Low", "Close", "Volume"]
+    for c in needed:
+        if c not in df.columns:
+            # Some crypto feeds might miss Volume; synthesize Volume as 1s
+            if c == "Volume":
+                df["Volume"] = 1.0
+            else:
+                return pd.DataFrame()
+
+    df = df[needed].dropna()
+    return df
+
+
+# =========================
+# INDICATORS
+# =========================
 def ema(series: pd.Series, n: int) -> pd.Series:
     return series.ewm(span=n, adjust=False).mean()
 
@@ -87,16 +134,14 @@ def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
     low = df["Low"]
     close = df["Close"]
     prev_close = close.shift(1)
-    tr = pd.concat([
-        (high - low),
-        (high - prev_close).abs(),
-        (low - prev_close).abs()
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [(high - low), (high - prev_close).abs(), (low - prev_close).abs()],
+        axis=1
+    ).max(axis=1)
     return tr.rolling(n).mean()
 
 
 def session_vwap(df: pd.DataFrame) -> pd.Series:
-    # Typical price VWAP: (H+L+C)/3 weighted by Volume
     tp = (df["High"] + df["Low"] + df["Close"]) / 3.0
     vol = df["Volume"].replace(0, np.nan)
     pv = (tp * vol).cumsum()
@@ -105,7 +150,7 @@ def session_vwap(df: pd.DataFrame) -> pd.Series:
 
 
 def chop_index(df: pd.DataFrame, n: int = 14) -> pd.Series:
-    # CHOP = 100*log10(sum(TR,n)/(maxH-minL))/log10(n)
+    # CHOP = 100 * log10(sum(TR,n)/(maxH-minL)) / log10(n)
     high = df["High"].rolling(n).max()
     low = df["Low"].rolling(n).min()
     tr = atr(df, 1)
@@ -115,12 +160,14 @@ def chop_index(df: pd.DataFrame, n: int = 14) -> pd.Series:
     return chop.clip(0, 100).ffill()
 
 
+# =========================
+# FETCH
+# =========================
 @st.cache_data(ttl=8, show_spinner=False)
 def fetch_intraday(symbol: str, interval: str) -> pd.DataFrame:
     if yf is None:
         return pd.DataFrame()
 
-    # yfinance intraday: 1m is limited. 5m is usually fine.
     period = "7d" if interval == "1m" else "5d"
     try:
         df = yf.download(
@@ -132,9 +179,7 @@ def fetch_intraday(symbol: str, interval: str) -> pd.DataFrame:
             prepost=True,
             threads=True,
         )
-        if df is None or df.empty:
-            return pd.DataFrame()
-        df = df.dropna()
+        df = normalize_ohlcv(df, symbol)
         return df
     except Exception:
         return pd.DataFrame()
@@ -142,7 +187,7 @@ def fetch_intraday(symbol: str, interval: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_daily(symbols: list[str]) -> pd.DataFrame:
-    if yf is None or len(symbols) == 0:
+    if yf is None or not symbols:
         return pd.DataFrame()
 
     try:
@@ -154,24 +199,15 @@ def fetch_daily(symbols: list[str]) -> pd.DataFrame:
             auto_adjust=False,
             threads=True
         )
-        if df is None or df.empty:
-            return pd.DataFrame()
         return df
     except Exception:
         return pd.DataFrame()
 
 
-def market_status_badge(asset: str) -> str:
-    # We don't have exchange calendar here; keep it honest/simple.
-    # If pre/post in data exists today, we call it “LIVE/AFTER HOURS” based on last candle time proximity.
-    return "LIVE"  # We’ll label this more “data-driven” below in the header line.
-
-
+# =========================
+# ENGINE
+# =========================
 def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
-    """
-    5m = Brain (bias/regime)
-    1m = Trigger (entry/caution)
-    """
     out = {
         "price": np.nan,
         "last_time": "",
@@ -197,7 +233,7 @@ def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
         out["action"] = "WAIT — NO DATA"
         return out
 
-    # Use 1m if available for “current-ish” price; else fallback to 5m close
+    # Use 1m close if available for “current-ish” price
     if df1 is not None and not df1.empty:
         price = float(df1["Close"].iloc[-1])
         last_time = df1.index[-1]
@@ -208,27 +244,17 @@ def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
     out["price"] = price
     out["last_time"] = str(last_time)
 
-    # Determine “status” from last candle freshness
-    # If candle is within ~5 minutes -> MARKET OPEN-ish. Otherwise AFTER HOURS / DELAYED.
+    # Status from candle freshness (simple + robust)
     try:
-        # yfinance index tz can be weird; keep robust
         now = datetime.now(timezone.utc)
-        if hasattr(last_time, "to_pydatetime"):
-            lt = last_time.to_pydatetime()
-            if lt.tzinfo is None:
-                lt = lt.replace(tzinfo=timezone.utc)
-        else:
-            lt = datetime.now(timezone.utc)
-
+        lt = last_time.to_pydatetime() if hasattr(last_time, "to_pydatetime") else datetime.now(timezone.utc)
+        if lt.tzinfo is None:
+            lt = lt.replace(tzinfo=timezone.utc)
         age_sec = max(0, (now - lt.astimezone(timezone.utc)).total_seconds())
-        if age_sec <= 360:
-            out["status"] = "MARKET OPEN"
-        else:
-            out["status"] = "AFTER HOURS"
+        out["status"] = "MARKET OPEN" if age_sec <= 360 else "AFTER HOURS"
     except Exception:
         out["status"] = "AFTER HOURS"
 
-    # 5m indicators
     df5 = df5.copy()
     df5["EMA9"] = ema(df5["Close"], 9)
     df5["EMA21"] = ema(df5["Close"], 21)
@@ -247,7 +273,6 @@ def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
     out["atr_5m"] = atr5
     out["chop"] = chop
 
-    # Brain: bias + regime
     bullish_stack = (c5 > vwap5) and (ema9_5 > ema21_5)
     bearish_stack = (c5 < vwap5) and (ema9_5 < ema21_5)
 
@@ -261,14 +286,12 @@ def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
         out["bias"] = "NEUTRAL"
         out["direction"] = "WAIT"
 
-    # Regime from chop + slope
     slope = float((df5["EMA9"].iloc[-1] - df5["EMA9"].iloc[-4]) / max(1e-9, atr5))
     if chop >= 55:
         out["regime"] = "RANGE"
     else:
         out["regime"] = "TREND" if abs(slope) > 0.15 else "RANGE"
 
-    # Trigger: 1m confirmation (aggressive/full send)
     trigger_ok = False
     momentum_ok = False
 
@@ -276,7 +299,6 @@ def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
         df1 = df1.copy()
         df1["EMA9"] = ema(df1["Close"], 9)
         df1["EMA21"] = ema(df1["Close"], 21)
-
         c1 = float(df1["Close"].iloc[-1])
         e9 = float(df1["EMA9"].iloc[-1])
         e21 = float(df1["EMA21"].iloc[-1])
@@ -287,22 +309,16 @@ def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
         elif out["bias"] == "BEARISH":
             trigger_ok = (c1 < e9) or (e9 < e21)
             momentum_ok = (e9 < e21)
-        else:
-            trigger_ok = False
-            momentum_ok = False
 
-    # Score (0-100)
     score = 0
     score += 30 if out["bias"] != "NEUTRAL" else 10
-    score += 25 if (out["regime"] == "TREND") else 10
+    score += 25 if out["regime"] == "TREND" else 10
     score += 20 if trigger_ok else 0
     score += 15 if momentum_ok else 0
     score += 10 if chop < 55 else 0
     score = int(max(0, min(100, score)))
     out["score"] = score
 
-    # Decide action
-    # Keep your language consistent with what you’ve been using.
     if out["bias"] == "NEUTRAL":
         out["action"] = "HEADS UP"
         out["one_liner"] = "Stand down. No edge."
@@ -321,8 +337,7 @@ def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
             out["one_liner"] = "Stand down. No edge."
             out["why"] = "Bias exists but conditions are weak or choppy."
 
-    # Expected move (FROM HERE) — always anchored to current price (fixes the mismatch you noticed)
-    # Use ATR-based projection with mode + regime multipliers
+    # Expected move anchored to current price
     if atr5 <= 0 or np.isnan(atr5):
         atr5 = max(0.15, price * 0.001)
 
@@ -340,13 +355,9 @@ def decide_engine(df5: pd.DataFrame, df1: pd.DataFrame, mode: str):
     if mode == "FULL SEND":
         base *= 1.15
 
-    likely = price + sign * (base * 0.9 * atr5)
-    poss = price + sign * (base * 1.35 * atr5)
-    stretch = price + sign * (base * 2.0 * atr5)
-
-    out["likely"] = float(likely)
-    out["poss"] = float(poss)
-    out["stretch"] = float(stretch)
+    out["likely"] = float(price + sign * (base * 0.9 * atr5))
+    out["poss"] = float(price + sign * (base * 1.35 * atr5))
+    out["stretch"] = float(price + sign * (base * 2.0 * atr5))
     out["invalid"] = float(invalid)
 
     return out
@@ -385,18 +396,13 @@ def inject_theme_css():
     st.markdown(
         """
         <style>
-        /* Global dark command center vibe */
         html, body, [class*="css"]  {
             background: #0b0f14 !important;
             color: #e7edf5 !important;
         }
-
-        /* Sidebar darker */
         section[data-testid="stSidebar"] {
             background: #0a0e13 !important;
         }
-
-        /* Pills (color-coded buttons) */
         .pill {
             display:inline-block;
             padding: 6px 12px;
@@ -408,8 +414,6 @@ def inject_theme_css():
             background: rgba(255,255,255,0.02);
             backdrop-filter: blur(8px);
         }
-
-        /* Command card */
         .command-card {
             border: 1px solid rgba(255,255,255,0.06);
             border-radius: 18px;
@@ -417,8 +421,6 @@ def inject_theme_css():
             background: radial-gradient(1200px 500px at 50% 0%, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
             box-shadow: 0 12px 40px rgba(0,0,0,0.55);
         }
-
-        /* Responsive typography for mobile */
         .asset-title {
             font-size: clamp(18px, 2.2vw, 28px);
             opacity: .9;
@@ -467,8 +469,6 @@ def inject_theme_css():
             font-size: 14px;
             opacity: .65;
         }
-
-        /* Marquee (scrolling feed) */
         .marquee-wrap {
             position: relative;
             overflow: hidden;
@@ -492,8 +492,6 @@ def inject_theme_css():
             0%   { transform: translateX(0); }
             100% { transform: translateX(-100%); }
         }
-
-        /* Make Streamlit tabs colored again */
         button[data-baseweb="tab"] {
             font-weight: 900 !important;
             letter-spacing: .4px !important;
@@ -503,8 +501,6 @@ def inject_theme_css():
             background: rgba(25,255,138,0.10) !important;
             border-bottom: 2px solid #19ff8a !important;
         }
-
-        /* Small footer */
         .footer {
             opacity: .55;
             font-size: 12px;
@@ -518,7 +514,6 @@ def inject_theme_css():
 
 
 def inject_autorefresh(seconds: int):
-    # No dependency. No warning. Pure HTML refresh.
     st.components.v1.html(
         f"""
         <script>
@@ -533,20 +528,19 @@ def inject_autorefresh(seconds: int):
 
 
 def build_top_movers():
-    df = fetch_daily([s for s in TOP_MOVERS_UNIVERSE if s.isalnum() or "-" in s])
+    df = fetch_daily([s for s in TOP_MOVERS_UNIVERSE if s])
     if df is None or df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    # If multiple symbols, yfinance returns column multiindex
+    # yfinance multi-symbol daily: MultiIndex columns (field, ticker)
     try:
-        close = df["Close"].copy()
+        close = df["Close"]
     except Exception:
         return pd.DataFrame(), pd.DataFrame()
 
     if isinstance(close, pd.Series):
         close = close.to_frame()
 
-    # Use last 2 closes
     if len(close) < 2:
         return pd.DataFrame(), pd.DataFrame()
 
@@ -572,13 +566,10 @@ def build_top_movers():
 # UI
 # =========================
 inject_theme_css()
-
 st.title("Lockout Signals • Command Center")
 
-# Sidebar controls
 with st.sidebar:
     st.markdown("### Controls")
-
     asset = st.selectbox("Asset", ASSETS, index=0)
     mode = st.radio("Mode", ["AGGRESSIVE", "FULL SEND"], index=0)
 
@@ -592,21 +583,17 @@ with st.sidebar:
     with c2:
         st.caption("")
 
-    # Sponsor block
     st.markdown("---")
     st.markdown("### Sponsor")
     try:
         st.image(SPONSOR_IMAGE_PATH, use_container_width=True)
     except Exception:
         st.caption("(Add `robinhood.webp` to your repo to show the image.)")
-
     st.markdown(f"**Sign up for Robinhood** 🎁  \n{SPONSOR_LINK}")
 
     st.markdown("---")
     st.markdown("### Top Movers (Universe)")
-
     top_up, top_dn = build_top_movers()
-
     if top_up.empty:
         st.caption("Top movers unavailable (data feed may be rate-limited).")
     else:
@@ -623,19 +610,16 @@ with st.sidebar:
             hide_index=True
         )
 
-# Auto refresh (no warnings)
 if auto_on:
     inject_autorefresh(refresh_seconds)
 
-# Main data pull
 symbol = norm_symbol(asset)
 df5 = fetch_intraday(symbol, "5m")
 df1 = fetch_intraday(symbol, "1m")
 
 engine = decide_engine(df5, df1, mode)
-
-# Build scrolling feed line (we brought it back)
 action_color = color_for_action(engine["action"])
+
 feed = (
     f"PRICE: {fmt(engine['price'])} • ACTION: {engine['action']} • "
     f"BIAS: {engine['bias']} — {engine['direction']} • "
@@ -656,7 +640,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Command Center Card
 bias_chip_color = "#19ff8a" if engine["bias"] == "BULLISH" else ("#ff5a6e" if engine["bias"] == "BEARISH" else "#ffdf6e")
 status_chip_color = "#19ff8a" if engine["status"] == "MARKET OPEN" else "#ffb020"
 regime_chip_color = "#4dd8ff" if engine["regime"] == "RANGE" else "#b993ff"
@@ -694,7 +677,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# KPI strip (kept minimal, still “engine-y” without the debug dump)
 k1, k2, k3, k4 = st.columns(4)
 with k1:
     st.metric("Bias", engine["bias"])
