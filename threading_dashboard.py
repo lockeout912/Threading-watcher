@@ -10,9 +10,6 @@ from datetime import datetime, time, timezone, timedelta
 # ============================================================
 st.set_page_config(page_title="Lockout Signals • SPY + BTC", layout="wide")
 
-# ============================================================
-# SAFE STYLES
-# ============================================================
 st.markdown("""
 <style>
 .block-container { padding-top: 0.8rem; padding-bottom: 2rem; max-width: 1100px; }
@@ -23,7 +20,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================
-# CONSTANTS
+# CONSTANTS (TUNED)
 # ============================================================
 ASSETS = {
     "SPY": {"ticker": "SPY", "type": "equity"},
@@ -39,15 +36,25 @@ EMA_PERIOD = 9
 ATR_PERIOD = 14
 RVOL_LOOKBACK = 20
 
-VWAP_CONFIRM_BARS = 2
-RESET_MINUTES = 15
+# Old conservative behavior: 2-bar confirm. We’ll reduce early session.
+VWAP_CONFIRM_BARS = 1
 
-HEADSUP_VWAP_ATR_BAND = 0.50
-RVOL_HEADSUP_MIN = 1.00
-RVOL_ENTRY_MIN = 1.30
+# Cooldown stays
+RESET_MINUTES = 10
 
-BANDWIDTH_EXPAND_BARS = 3
-BANDWIDTH_MIN_LIFT = 1.05
+# Early heads-up / bias signal gates (LOOSER)
+RVOL_HEADSUP_MIN = 0.85     # was 1.0
+RVOL_ENTRY_MIN = 1.05       # was 1.3
+
+# How far from VWAP is “too extended” (CAUTION)
+EXTENSION_ATR = 1.25
+
+# Bollinger bandwidth settings remain
+BANDWIDTH_EXPAND_BARS = 2
+BANDWIDTH_MIN_LIFT = 1.02
+
+# Opening drive window (equities)
+OPEN_DRIVE_MINUTES = 60
 
 # ============================================================
 # HELPERS
@@ -92,7 +99,7 @@ def bias_label(bias: str) -> str:
 # ============================================================
 # DATA FETCHING
 # ============================================================
-@st.cache_data(ttl=25)
+@st.cache_data(ttl=20)
 def fetch_intraday_yf(ticker: str) -> pd.DataFrame:
     try:
         df = yf.Ticker(ticker).history(period=FETCH_PERIOD, interval=INTERVAL)
@@ -108,10 +115,6 @@ def fetch_intraday_yf(ticker: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=5)
 def fetch_spy_quote_yf(ticker: str) -> dict:
-    """
-    Best-effort 'quote' via yfinance. Not true real-time.
-    Returns: {price, fetched_at_utc, source}
-    """
     t0 = now_utc()
     try:
         t = yf.Ticker(ticker)
@@ -131,10 +134,6 @@ def fetch_spy_quote_yf(ticker: str) -> dict:
 
 @st.cache_data(ttl=2)
 def fetch_btc_quote_coinbase() -> dict:
-    """
-    Coinbase public endpoint (fast).
-    Returns: {price, fetched_at_utc, source}
-    """
     t0 = now_utc()
     url = "https://api.exchange.coinbase.com/products/BTC-USD/ticker"
     try:
@@ -195,11 +194,11 @@ def filter_session(df: pd.DataFrame, asset_type: str) -> tuple[pd.DataFrame, str
 # ============================================================
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    if df.empty or df.shape[0] < max(BB_PERIOD, ATR_PERIOD, RVOL_LOOKBACK, EMA_PERIOD) + 5:
+    if df.empty:
         return df
 
     df["EMA9"] = df["Close"].ewm(span=EMA_PERIOD, adjust=False).mean()
-    df["EMA9_slope"] = df["EMA9"] - df["EMA9"].shift(3)
+    df["EMA9_slope"] = df["EMA9"] - df["EMA9"].shift(2)  # faster slope read
 
     prev_close = df["Close"].shift(1)
     tr1 = df["High"] - df["Low"]
@@ -222,19 +221,20 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     upper = mid + BB_STD * sd
     lower = mid - BB_STD * sd
     df["BB_bw"] = (upper - lower) / mid.replace(0, np.nan)
+
     return df
 
 def bandwidth_state(df: pd.DataFrame) -> tuple[str, float]:
     if df.empty or "BB_bw" not in df.columns:
         return "Chop", np.nan
     bw = df["BB_bw"].dropna()
-    if bw.shape[0] < 30:
+    if bw.shape[0] < 8:
         return "Chop", safe_float(df["BB_bw"].iloc[-1])
     bw_now = safe_float(bw.iloc[-1])
     last_vals = bw.tail(BANDWIDTH_EXPAND_BARS).values
     rising = all(last_vals[i] > last_vals[i - 1] for i in range(1, len(last_vals)))
-    recent_min = safe_float(bw.tail(20).min())
-    lifted = bw_now >= (recent_min * BANDWIDTH_MIN_LIFT)
+    recent_min = safe_float(bw.tail(20).min()) if bw.shape[0] >= 20 else safe_float(bw.min())
+    lifted = bw_now >= (recent_min * BANDWIDTH_MIN_LIFT) if not np.isnan(recent_min) else False
     return ("Trend" if (rising and lifted) else "Chop"), bw_now
 
 def vwap_confirmed_side(df: pd.DataFrame) -> str:
@@ -268,14 +268,14 @@ def compute_levels(df: pd.DataFrame, direction: str) -> dict:
 
     if direction == "Bullish":
         entry = vwap
-        target_low = entry + 1.5 * atr
-        target_high = entry + 3.0 * atr
-        exit_if = entry - 1.25 * atr
+        target_low = entry + 1.0 * atr
+        target_high = entry + 2.5 * atr
+        exit_if = entry - 1.0 * atr
     else:
         entry = vwap
-        target_low = entry - 3.0 * atr
-        target_high = entry - 1.5 * atr
-        exit_if = entry + 1.25 * atr
+        target_low = entry - 2.5 * atr
+        target_high = entry - 1.0 * atr
+        exit_if = entry + 1.0 * atr
 
     lo = float(min(target_low, target_high))
     hi = float(max(target_low, target_high))
@@ -317,26 +317,30 @@ def set_state(key: str, **kwargs):
 
 def status_box(sts: str):
     if sts == "ENTRY ACTIVE": return st.success
-    if sts in ("CAUTION", "HEADS UP"): return st.warning
+    if sts in ("CAUTION", "OPEN DRIVE", "HEADS UP"): return st.warning
     if sts == "EXIT / RESET": return st.error
     return st.info
 
 def decision_text(sts: str, direction: str | None, exit_reason: str | None):
+    if sts == "OPEN DRIVE" and direction == "Bullish":
+        return "BULLISH OPEN DRIVE (CALLS favored)", "Early-session trend impulse. Prefer CALL setups. Wait for pullback or ENTRY ACTIVE to size up."
+    if sts == "OPEN DRIVE" and direction == "Bearish":
+        return "BEARISH OPEN DRIVE (PUTS favored)", "Early-session dump impulse. Prefer PUT setups. Wait for bounce or ENTRY ACTIVE to size up."
     if sts == "ENTRY ACTIVE" and direction == "Bullish":
-        return "BUY CALLS (still valid)", "Entry is live. Stay long while price holds ABOVE VWAP. Respect Exit-If."
+        return "BUY CALLS (ENTRY ACTIVE)", "Tradable edge is live. Stay long while price holds ABOVE VWAP. Respect Exit-If."
     if sts == "ENTRY ACTIVE" and direction == "Bearish":
-        return "BUY PUTS (still valid)", "Entry is live. Stay short while price holds BELOW VWAP. Respect Exit-If."
+        return "BUY PUTS (ENTRY ACTIVE)", "Tradable edge is live. Stay short while price holds BELOW VWAP. Respect Exit-If."
     if sts == "CAUTION":
-        return "CAUTION (late entry risk)", "Edge is weakening. If entering now, size down or wait for re-confirmation."
+        return "CAUTION (late entry risk)", "Edge is weakening or extended. Size down or wait for re-confirmation."
     if sts == "HEADS UP":
-        return "HEADS UP (not confirmed)", "Setup building. Do NOT enter until ENTRY ACTIVE prints."
+        return "HEADS UP (building)", "Setup forming. Direction bias is present, but confirmation isn’t clean yet."
     if sts == "EXIT / RESET":
         why = f" — {exit_reason}" if exit_reason else ""
         return f"EXIT / STAND DOWN{why}", "Move is done. No chasing. Wait for the next cycle."
     if sts == "RESET":
-        return "RESET (cooldown)", "We’re cooling off to avoid chop whipsaws."
+        return "RESET (cooldown)", "Cooling off to avoid chop whipsaws."
     if sts == "WAITING":
-        return "WAITING (setup forming)", "Conditions are close, but confirmation isn’t clean yet."
+        return "WAITING (trend forming)", "Close, but we need one more clean confirmation."
     return "STAND DOWN (chop)", "No edge right now. Preserve capital and wait."
 
 # ============================================================
@@ -365,23 +369,23 @@ ticker = asset["ticker"]
 atype = asset["type"]
 
 # ============================================================
-# LOAD CANDLES (for indicators)
+# LOAD DATA
 # ============================================================
 df_raw = fetch_intraday_yf(ticker)
 df_sess, session_id = filter_session(df_raw, atype)
 df = compute_indicators(df_sess)
 
-if df.empty or df.shape[0] < 30:
-    st.warning("Not enough session data yet — let more 5-minute candles print.")
+# Loosen early requirement: we can speak by candle #3 now
+if df.empty or df.shape[0] < 3:
+    st.warning("Not enough session data yet — let a couple 5-minute candles print.")
     st.stop()
 
-# Candle-close (confirmed)
 candle_close = safe_float(df["Close"].iloc[-1])
 last_candle_time = df.index[-1]
 session_open = safe_float(df["Open"].iloc[0]) if df.shape[0] else np.nan
 
 # ============================================================
-# LIVE QUOTE (as live as possible for $0)
+# LIVE QUOTE
 # ============================================================
 if asset_key == "BTC":
     quote = fetch_btc_quote_coinbase()
@@ -392,7 +396,7 @@ st.session_state.quote_state[asset_key] = quote
 
 current = quote["price"]
 if np.isnan(current):
-    current = candle_close  # fallback
+    current = candle_close
 
 freshness_sec = (now_utc() - quote["fetched_at_utc"]).total_seconds()
 
@@ -408,57 +412,55 @@ mkt_state, bw_now = bandwidth_state(df)
 vwap_side = vwap_confirmed_side(df)
 mom = momentum_state(df)
 
-# Bias vs VWAP
 bias = "Mixed"
 if not np.isnan(current) and not np.isnan(vwap):
     bias = "Bullish" if current >= vwap else "Bearish"
 bias_text = bias_label(bias)
 
-# HOD/LOD
-hod = safe_float(df["High"].max())
-lod = safe_float(df["Low"].min())
-dist_to_hod = hod - current if not np.isnan(hod) else np.nan
-dist_to_lod = current - lod if not np.isnan(lod) else np.nan
+# OPEN DRIVE detection (equities only)
+is_open_drive_window = False
+if atype == "equity":
+    try:
+        ts = df.index[-1]  # NY tz already
+        market_open = ts.replace(hour=9, minute=30, second=0, microsecond=0)
+        is_open_drive_window = (ts <= (market_open + timedelta(minutes=OPEN_DRIVE_MINUTES)))
+    except Exception:
+        is_open_drive_window = False
 
-# Move meters
-delta_last = current - candle_close
-pct_last = pct_change(current, candle_close)
-delta_open = current - session_open
-pct_open = pct_change(current, session_open)
+# Impulse detection (range expansion + volume)
+range_now = safe_float(last["High"] - last["Low"])
+atr_use = atr if not np.isnan(atr) and atr > 0 else max(candle_close * 0.003, 0.50)
+impulse = range_now >= (0.60 * atr_use)
+vol_now = safe_float(last.get("Volume", np.nan))
+vol_ma = safe_float(df["Volume"].rolling(10).mean().iloc[-1]) if "Volume" in df.columns and df.shape[0] >= 10 else np.nan
+vol_surge = (not np.isnan(vol_now) and (np.isnan(vol_ma) or vol_now >= 1.10 * vol_ma))
 
-# Heads Up logic (early build — not tradeable)
-vol_prev = safe_float(df["Volume"].iloc[-2]) if df.shape[0] >= 2 else np.nan
-vol_now = safe_float(df["Volume"].iloc[-1])
-near_vwap = (not np.isnan(atr) and not np.isnan(current) and not np.isnan(vwap) and abs(current - vwap) <= (HEADSUP_VWAP_ATR_BAND * atr))
+# Extended?
+extended = (not np.isnan(vwap) and not np.isnan(atr_use) and abs(current - vwap) >= (EXTENSION_ATR * atr_use))
 
-momentum_improving = False
-if "EMA9_slope" in df.columns and df["EMA9_slope"].shape[0] >= 5:
-    s_now = safe_float(df["EMA9_slope"].iloc[-1])
-    s_prev = safe_float(df["EMA9_slope"].iloc[-3])
-    momentum_improving = (not np.isnan(s_now) and not np.isnan(s_prev) and s_now > s_prev)
+# "Trend-like" loosening: allow Trend if bandwidth rising and VWAP side clean
+trend_like = (mkt_state == "Trend") or (vwap_side in ("Above", "Below") and mom in ("Up", "Down") and (not np.isnan(bw_now)))
 
-participation_rising = (not np.isnan(vol_now) and not np.isnan(vol_prev) and vol_now > vol_prev and (np.isnan(rvol) or rvol >= RVOL_HEADSUP_MIN))
-bw_series = df.get("BB_bw", pd.Series(dtype=float)).dropna()
-bw_improving = (bw_series.shape[0] >= 3 and safe_float(bw_series.iloc[-1]) > safe_float(bw_series.iloc[-2]))
-
-heads_up = (mkt_state == "Chop" and near_vwap and momentum_improving and participation_rising and bw_improving)
-
-# Confirmed entries (tradeable)
+# ENTRY CONFIRM (LOOSER)
 confirmed_long = (
     bias == "Bullish"
-    and mkt_state == "Trend"
+    and trend_like
     and vwap_side == "Above"
     and mom == "Up"
-    and (not np.isnan(rvol) and rvol >= RVOL_ENTRY_MIN)
+    and (np.isnan(rvol) or rvol >= RVOL_ENTRY_MIN)
 )
 
 confirmed_short = (
     bias == "Bearish"
-    and mkt_state == "Trend"
+    and trend_like
     and vwap_side == "Below"
     and mom == "Down"
-    and (not np.isnan(rvol) and rvol >= RVOL_ENTRY_MIN)
+    and (np.isnan(rvol) or rvol >= RVOL_ENTRY_MIN)
 )
+
+# OPEN DRIVE (BIAS) if impulse + vwap alignment + early window
+open_drive_long = is_open_drive_window and bias == "Bullish" and impulse and (np.isnan(rvol) or rvol >= RVOL_HEADSUP_MIN)
+open_drive_short = is_open_drive_window and bias == "Bearish" and impulse and (np.isnan(rvol) or rvol >= RVOL_HEADSUP_MIN)
 
 levels_long = compute_levels(df, "Bullish")
 levels_short = compute_levels(df, "Bearish")
@@ -466,34 +468,15 @@ levels_short = compute_levels(df, "Bearish")
 def exit_triggered(active_dir: str) -> tuple[bool, str]:
     if active_dir == "Bullish":
         if vwap_side == "Below":
-            return True, "VWAP flip confirmed"
+            return True, "VWAP flip"
         if current <= levels_long["exit_if"]:
-            return True, "Emergency ATR stop"
+            return True, "ATR stop"
     if active_dir == "Bearish":
         if vwap_side == "Above":
-            return True, "VWAP flip confirmed"
+            return True, "VWAP flip"
         if current >= levels_short["exit_if"]:
-            return True, "Emergency ATR stop"
+            return True, "ATR stop"
     return False, ""
-
-def caution_for_later(direction: str) -> bool:
-    if direction == "Bullish":
-        still = current >= vwap
-        weak = 0
-        if mkt_state != "Trend": weak += 1
-        if mom != "Up": weak += 1
-        if np.isnan(rvol) or rvol < RVOL_ENTRY_MIN: weak += 1
-        if vwap_side != "Above": weak += 1
-        return bool(still and weak >= 2)
-    if direction == "Bearish":
-        still = current <= vwap
-        weak = 0
-        if mkt_state != "Trend": weak += 1
-        if mom != "Down": weak += 1
-        if np.isnan(rvol) or rvol < RVOL_ENTRY_MIN: weak += 1
-        if vwap_side != "Below": weak += 1
-        return bool(still and weak >= 2)
-    return False
 
 # Session reset detection
 s = get_state(asset_key)
@@ -515,45 +498,42 @@ else:
                       reset_until=now_utc() + timedelta(minutes=RESET_MINUTES),
                       last_exit_reason=reason)
         else:
-            if active == "Bullish":
-                if confirmed_long:
-                    set_state(asset_key, status="ENTRY ACTIVE", active_direction="Bullish")
-                elif caution_for_later("Bullish"):
-                    set_state(asset_key, status="CAUTION", active_direction="Bullish")
-                else:
-                    set_state(asset_key, status="WAITING", active_direction="Bullish")
+            # Stay active but mark caution if extended or weakening
+            if extended:
+                set_state(asset_key, status="CAUTION", active_direction=active)
             else:
-                if confirmed_short:
-                    set_state(asset_key, status="ENTRY ACTIVE", active_direction="Bearish")
-                elif caution_for_later("Bearish"):
-                    set_state(asset_key, status="CAUTION", active_direction="Bearish")
-                else:
-                    set_state(asset_key, status="WAITING", active_direction="Bearish")
+                set_state(asset_key, status="ENTRY ACTIVE", active_direction=active)
     else:
-        if confirmed_long:
+        # Entry checks
+        if confirmed_long and not extended:
             set_state(asset_key, status="ENTRY ACTIVE", active_direction="Bullish")
-        elif confirmed_short:
+        elif confirmed_short and not extended:
             set_state(asset_key, status="ENTRY ACTIVE", active_direction="Bearish")
         else:
-            if heads_up:
-                set_state(asset_key, status="HEADS UP", active_direction=None)
-            elif mkt_state == "Trend":
-                set_state(asset_key, status="WAITING", active_direction=None)
+            # OPEN DRIVE bias (early)
+            if open_drive_long:
+                set_state(asset_key, status="OPEN DRIVE", active_direction="Bullish")
+            elif open_drive_short:
+                set_state(asset_key, status="OPEN DRIVE", active_direction="Bearish")
             else:
-                set_state(asset_key, status="STAND DOWN", active_direction=None)
+                # If we have bias + trend-like but extended, show caution
+                if trend_like and extended and bias in ("Bullish", "Bearish"):
+                    set_state(asset_key, status="CAUTION", active_direction=bias)
+                elif trend_like and bias in ("Bullish", "Bearish"):
+                    set_state(asset_key, status="WAITING", active_direction=bias)
+                else:
+                    set_state(asset_key, status="STAND DOWN", active_direction=None)
 
 s = get_state(asset_key)
 status = s["status"]
 active_dir = s.get("active_direction")
 exit_reason = s.get("last_exit_reason")
 
-# Choose direction for level display even when neutral
 direction = active_dir if active_dir in ("Bullish", "Bearish") else ("Bullish" if bias == "Bullish" else "Bearish")
 levels = compute_levels(df, "Bullish" if direction == "Bullish" else "Bearish")
 
 entry_line = f"Above {fmt(levels['entry'])}" if direction == "Bullish" else f"Below {fmt(levels['entry'])}"
 exit_line  = f"Below {fmt(levels['exit_if'])}" if direction == "Bullish" else f"Above {fmt(levels['exit_if'])}"
-
 range_label = "Upside Range" if direction == "Bullish" else "Downside Range"
 
 title, instruction = decision_text(status, active_dir, exit_reason)
@@ -572,15 +552,15 @@ with tab_overview:
 
         st.markdown(
             f'<div class="small-muted">'
-            f'Quote source: {quote["source"]} • Quote freshness: {freshness_sec:.1f}s<br>'
+            f'Quote source: {quote["source"]} • freshness: {freshness_sec:.1f}s<br>'
             f'Candle Close: {fmt(candle_close)} • Last candle time: {last_candle_time}'
             f'</div>',
             unsafe_allow_html=True
         )
 
         m1, m2 = st.columns(2)
-        m1.metric("Move vs last candle", fmt_delta(delta_last), fmt_pct(pct_last))
-        m2.metric("Move vs session open", fmt_delta(delta_open), fmt_pct(pct_open))
+        m1.metric("Move vs last candle", fmt_delta(current - candle_close), fmt_pct(pct_change(current, candle_close)))
+        m2.metric("Move vs session open", fmt_delta(current - session_open), fmt_pct(pct_change(current, session_open)))
 
         st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
         st.subheader("Micro Trend")
@@ -594,7 +574,6 @@ with tab_overview:
 
     with right:
         st.markdown("### Decision Ribbon")
-        # My preferred layout: Bias → Status → Action
         st.write(f"**Directional Bias:** `{bias_text}`")
         st.write(f"**Status:** `{status}`")
         st.write(f"**Action:** {title}")
@@ -611,20 +590,15 @@ with tab_overview:
             f"({fmt_delta(levels['usd_low'])} to {fmt_delta(levels['usd_high'])})"
         )
 
-        st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
-        h1, h2 = st.columns(2)
-        h1.metric("Session HOD", fmt(hod), f"{fmt_delta(-dist_to_hod)} from price" if not np.isnan(dist_to_hod) else "—")
-        h2.metric("Session LOD", fmt(lod), f"{fmt_delta(dist_to_lod)} above LOD" if not np.isnan(dist_to_lod) else "—")
-
 with tab_engine:
-    st.subheader("Engine Readout (why the ribbon says what it says)")
+    st.subheader("Engine Readout")
     st.write(f"**Directional Bias:** `{bias_text}`")
 
     e1, e2, e3, e4 = st.columns(4)
     e1.metric("Bias (vs VWAP)", bias)
     e2.metric("Regime", mkt_state)
     e3.metric("VWAP Confirm", vwap_side)
-    e4.metric("Momentum (EMA9 slope)", mom)
+    e4.metric("Momentum", mom)
 
     e5, e6, e7, e8 = st.columns(4)
     e5.metric("VWAP", fmt(vwap))
@@ -633,18 +607,11 @@ with tab_engine:
     e8.metric("BB Width", "—" if np.isnan(bw_now) else f"{bw_now:.4f}")
 
     st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
-    st.write("**Signal Glossary**")
-    st.write("- **HEADS UP** = early build (do not enter)")
-    st.write("- **ENTRY ACTIVE** = tradable edge now")
-    st.write("- **CAUTION** = late entry risk / weakening")
-    st.write("- **EXIT/RESET** = move done, don’t chase")
-    st.write("- **RESET** = cooldown to avoid chop")
-
-    st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
-    st.write("**Reality Check (data latency)**")
-    st.write(f"- Quote freshness right now: **{freshness_sec:.1f}s** (refresh setting + network + data source)")
-    st.write("- **BTC:** Coinbase is typically near-live.")
-    st.write("- **SPY:** yfinance can lag. We show freshness so you always know what you’re looking at.")
+    st.write("**Notes**")
+    st.write("- **OPEN DRIVE** = early impulse bias (not a full confirmation, but you should align with it)")
+    st.write("- **ENTRY ACTIVE** = tradable edge")
+    st.write("- **CAUTION** = extended/late entry risk")
+    st.write("- **EXIT/RESET** = done, wait")
 
 with tab_raw:
     st.subheader("Raw Session Table (last 80 candles)")
