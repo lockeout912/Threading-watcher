@@ -106,6 +106,50 @@ html, body, [data-testid="stAppViewContainer"] {
   white-space: nowrap;
 }
 
+/* ===== Chip Color Roles (this is the only visual upgrade) ===== */
+.chip-bull{
+  border: 1px solid rgba(52,255,154,.55) !important;
+  background: rgba(52,255,154,.10) !important;
+  color: #34ff9a !important;
+  font-weight: 800;
+}
+.chip-bear{
+  border: 1px solid rgba(255,91,110,.55) !important;
+  background: rgba(255,91,110,.10) !important;
+  color: #ff5b6e !important;
+  font-weight: 800;
+}
+.chip-neutral{
+  border: 1px solid rgba(88,215,255,.55) !important;
+  background: rgba(88,215,255,.10) !important;
+  color: #58d7ff !important;
+  font-weight: 800;
+}
+.chip-market{
+  border: 1px solid rgba(255,204,102,.55) !important;
+  background: rgba(255,204,102,.10) !important;
+  color: #ffcc66 !important;
+  font-weight: 800;
+}
+.chip-regime{
+  border: 1px solid rgba(170,140,255,.55) !important;
+  background: rgba(170,140,255,.10) !important;
+  color: #aa8cff !important;
+  font-weight: 800;
+}
+.chip-score{
+  border: 1px solid rgba(255,255,255,.22) !important;
+  background: rgba(255,255,255,.06) !important;
+  color: rgba(255,255,255,.92) !important;
+  font-weight: 800;
+}
+.chip-mode{
+  border: 1px solid rgba(255,255,255,.16) !important;
+  background: rgba(255,255,255,.04) !important;
+  color: rgba(255,255,255,.88) !important;
+  font-weight: 800;
+}
+
 /* ===== Marquee (command feed) ===== */
 .marquee-wrap{
   width: 100%;
@@ -319,6 +363,16 @@ def command_feed(text: str, cls: str):
     )
 
 
+def chip_class_for_bias(bias: str, direction: str) -> str:
+    b = (bias or "").upper()
+    d = (direction or "").upper()
+    if "BULL" in b or "CALL" in d:
+        return "chip-bull"
+    if "BEAR" in b or "PUT" in d:
+        return "chip-bear"
+    return "chip-neutral"
+
+
 # =========================
 # Data Fetching
 # =========================
@@ -428,7 +482,7 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
     ema9_prev = float(d5["EMA9"].iloc[-4]) if len(d5) >= 4 else ema9_now
     slope9 = ema9_now - ema9_prev
 
-    # Bias logic (more “trader” less “professor”)
+    # Bias logic
     bull_stack = (ema9_now > ema21_now) and (price > vwap5)
     bear_stack = (ema9_now < ema21_now) and (price < vwap5)
 
@@ -455,7 +509,6 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
         ema9_1 = float(d1["EMA9"].iloc[-1])
         vwap1 = float(d1["VWAP"].iloc[-1])
 
-        # Reclaim / reject logic (fast)
         if direction == "CALLS":
             heads_up = (c > ema9_1 and c1 <= ema9_1) or (c > vwap1 and c1 <= vwap1)
             trigger_ok = (c > ema9_1 and c > vwap1)
@@ -463,13 +516,10 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
             heads_up = (c < ema9_1 and c1 >= ema9_1) or (c < vwap1 and c1 >= vwap1)
             trigger_ok = (c < ema9_1 and c < vwap1)
         else:
-            # neutral: still allow heads up if strong reclaim/reject
             heads_up = abs(c - vwap1) <= max(atr5 * 0.25, 0.05)
 
     # Score (aggressive)
     score = 0
-
-    # Bias contribution
     if bias == "BULLISH":
         score += 32
     elif bias == "BEARISH":
@@ -477,20 +527,17 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
     else:
         score += 12
 
-    # Alignment / momentum
     if direction != "WAIT":
         if (direction == "CALLS" and price > ema9_now) or (direction == "PUTS" and price < ema9_now):
             score += 18
         if (direction == "CALLS" and slope9 > 0) or (direction == "PUTS" and slope9 < 0):
             score += 12
 
-    # Trigger
     if trigger_ok:
         score += 22
     elif heads_up:
         score += 10
 
-    # Chop penalty (we still trade, but we’re not idiots)
     if not np.isnan(chop5):
         if chop5 >= 65:
             score -= 22
@@ -501,15 +548,13 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
 
     score = int(max(0, min(100, score)))
 
-    # Thresholds
     if mode == "FULL SEND":
         entry_th = 45
         caution_th = 32
-    else:  # AGGRESSIVE
+    else:
         entry_th = 55
         caution_th = 40
 
-    # Invalidation level (simple, fast)
     if direction == "CALLS":
         invalid = min(vwap5, ema21_now) - max(atr5 * 0.25, 0.05)
     elif direction == "PUTS":
@@ -517,10 +562,8 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
     else:
         invalid = vwap5
 
-    # Expected move “FROM HERE” (ATR-based)
-    # Wider when FULL SEND, slightly tighter when AGGRESSIVE
     if np.isnan(atr5) or atr5 <= 0:
-        atr5 = max(abs(price) * 0.001, 0.25)  # fallback
+        atr5 = max(abs(price) * 0.001, 0.25)
 
     if mode == "FULL SEND":
         m1, m2, m3 = 1.20, 2.00, 3.00
@@ -536,12 +579,10 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
         poss = price - atr5 * m2
         stretch = price - atr5 * m3
     else:
-        # Neutral: show both sides around price
         likely = price - atr5 * 0.9
         poss = price + atr5 * 0.9
         stretch = price + atr5 * 1.6
 
-    # Action logic (more signals)
     why = ""
     if direction == "WAIT":
         if heads_up:
@@ -551,7 +592,6 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
             action = "WAIT — NO EDGE"
             why = "No clean alignment yet."
     else:
-        # exit if invalid breached
         if (direction == "CALLS" and price < invalid) or (direction == "PUTS" and price > invalid):
             action = "EXIT / RESET"
             why = "Invalidation breached. Step away until alignment returns."
@@ -591,9 +631,7 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
 # =========================
 # Universe / Assets
 # =========================
-# Your requested tickers + a “top traded” core list baked in.
 ASSETS = {
-    # Core
     "SPY": "SPY",
     "QQQ": "QQQ",
     "IWM": "IWM",
@@ -618,8 +656,6 @@ ASSETS = {
     "HYMC": "HYMC",
     "XOM": "XOM",
     "OXY": "OXY",
-
-    # Big “top-traded” defaults (common daily volume names)
     "AAPL": "AAPL",
     "MSFT": "MSFT",
     "AMZN": "AMZN",
@@ -630,8 +666,6 @@ ASSETS = {
     "INTC": "INTC",
     "BAC": "BAC",
     "NIO": "NIO",
-
-    # Crypto
     "BTC": "CRYPTO:BTC-USD",
     "ETH": "CRYPTO:ETH-USD",
     "XRP": "CRYPTO:XRP-USD",
@@ -639,7 +673,6 @@ ASSETS = {
     "SOL": "CRYPTO:SOL-USD",
     "DOGE": "CRYPTO:DOGE-USD",
 }
-
 
 UNIVERSE_KEYS = list(ASSETS.keys())
 
@@ -660,13 +693,11 @@ refresh_seconds = st.sidebar.selectbox("Refresh seconds", [10, 15, 20, 30, 45, 6
 
 refresh_now = st.sidebar.button("🔁 Refresh now", use_container_width=True)
 
-# Auto-refresh trigger
 if auto and _AUTORF_AVAILABLE:
     st_autorefresh(interval=refresh_seconds * 1000, key="autorf")
 elif auto and not _AUTORF_AVAILABLE:
     st.sidebar.caption("Auto-refresh not available (missing streamlit-autorefresh). Use Refresh now.")
 
-# Manual refresh rerun
 if refresh_now:
     st.cache_data.clear()
     st.rerun()
@@ -681,17 +712,15 @@ st.title("Lockout Signals • Command Center")
 # =========================
 # Fetch Data
 # =========================
-# 5m "brain" — 1d is enough for session VWAP + ATR.
 df_5m = fetch_intraday(symbol, interval="5m", period="1d")
 
-# 1m "trigger" — 1d sometimes fails; fallback to 5d
 df_1m = fetch_intraday(symbol, interval="1m", period="1d")
 if df_1m.empty:
     df_1m = fetch_intraday(symbol, interval="1m", period="5d")
 
 out = compute_engine(df_1m, df_5m, mode=mode)
-
 mkt = market_status(asset_key)
+
 
 # =========================
 # Top Movers Sidebar (Universe)
@@ -701,7 +730,6 @@ st.sidebar.markdown("### Top Movers (Universe)")
 
 def movers_table(universe_keys: list[str]) -> pd.DataFrame:
     rows = []
-    # Pull 5m for each symbol (fast-ish; TTL cache helps)
     for k in universe_keys:
         sym = yf_symbol(ASSETS[k])
         try:
@@ -751,6 +779,8 @@ command_feed(feed, tone_class(out.bias, out.action))
 subhead = f"{asset_label} • 5m Brain / 1m Trigger"
 action_color = color_for_action(out.action)
 
+bias_chip_class = chip_class_for_bias(out.bias, out.direction)
+
 st.markdown(
     f"""
 <div class="cc-card">
@@ -760,11 +790,11 @@ st.markdown(
   <div class="k_action" style="color: {action_color};">{out.action}</div>
 
   <div class="k_chips">
-    <div class="k_chip">{out.bias} — {out.direction}</div>
-    <div class="k_chip">{mkt}</div>
-    <div class="k_chip">REGIME: {out.regime}</div>
-    <div class="k_chip">SCORE: {out.score}/100</div>
-    <div class="k_chip">MODE: {mode}</div>
+    <div class="k_chip {bias_chip_class}">{out.bias} — {out.direction}</div>
+    <div class="k_chip chip-market">{mkt}</div>
+    <div class="k_chip chip-regime">REGIME: {out.regime}</div>
+    <div class="k_chip chip-score">SCORE: {out.score}/100</div>
+    <div class="k_chip chip-mode">MODE: {mode}</div>
   </div>
 
   <div class="k_small"><b>EXPECTED MOVE (FROM HERE)</b></div>
@@ -822,7 +852,7 @@ with st.expander("Show chart (Close / EMA9 / VWAP)", expanded=False):
         d1 = df_1m.copy()
         d1["EMA9"] = ema(d1["Close"], 9)
         d1["VWAP"] = vwap_intraday(d1)
-        d1 = d1.tail(240)  # keep it snappy
+        d1 = d1.tail(240)
 
         chart_df = d1.set_index("Datetime")[["Close", "EMA9", "VWAP"]]
         st.line_chart(chart_df)
@@ -834,13 +864,3 @@ with st.expander("Show chart (Close / EMA9 / VWAP)", expanded=False):
         st.line_chart(chart_df)
     else:
         st.info("No chart data available yet.")
-
-
-# =========================
-# Debug panel (optional)
-# =========================
-with st.expander("Engine debug (optional)", expanded=False):
-    st.write("Symbol:", symbol)
-    st.write("Data points 5m:", len(df_5m))
-    st.write("Data points 1m:", len(df_1m))
-    st.write(out)
