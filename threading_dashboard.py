@@ -219,13 +219,6 @@ def market_status(asset_key: str) -> str:
     return "CLOSED"
 
 
-def safe_float(x, default=np.nan):
-    try:
-        return float(x)
-    except Exception:
-        return default
-
-
 def ema(series: pd.Series, span: int) -> pd.Series:
     return series.ewm(span=span, adjust=False).mean()
 
@@ -265,13 +258,16 @@ def vwap_intraday(df: pd.DataFrame) -> pd.Series:
 
 
 def fmt_price(x: float, decimals: int = 2) -> str:
-    if np.isnan(x):
-        return "—"
+    try:
+        if np.isnan(x):
+            return "—"
+    except Exception:
+        pass
     return f"{x:,.{decimals}f}"
 
 
 def color_for_action(action: str) -> str:
-    a = action.upper()
+    a = str(action).upper()
     if "ENTRY" in a or "ACTIVE" in a:
         return "#34ff9a"
     if "HEADS" in a:
@@ -288,8 +284,7 @@ def color_for_action(action: str) -> str:
 
 
 def tone_class(bias: str, action: str) -> str:
-    # feed color: action dominates, bias secondary
-    a = action.upper()
+    a = str(action).upper()
     if "EXIT" in a or "RESET" in a:
         return "bad"
     if "CAUTION" in a:
@@ -298,7 +293,7 @@ def tone_class(bias: str, action: str) -> str:
         return "good"
     if "HEADS" in a:
         return "warn"
-    b = bias.upper()
+    b = str(bias).upper()
     if "BULL" in b:
         return "good"
     if "BEAR" in b:
@@ -319,6 +314,68 @@ def command_feed(text: str, cls: str):
     )
 
 
+def chip(label: str, fg: str, bg: str, border: str) -> str:
+    # HTML for a color-coded chip using the existing .k_chip sizing
+    return f"""
+<div class="k_chip" style="
+  color:{fg};
+  background:{bg};
+  border:1px solid {border};
+">
+  {label}
+</div>
+"""
+
+
+def chip_palette_for_bias_direction(bias: str, direction: str):
+    b = str(bias).upper()
+    d = str(direction).upper()
+    if "BULL" in b or "CALL" in d:
+        return ("#34ff9a", "rgba(52,255,154,.08)", "rgba(52,255,154,.45)")
+    if "BEAR" in b or "PUT" in d:
+        return ("#ff5b6e", "rgba(255,91,110,.08)", "rgba(255,91,110,.45)")
+    return ("rgba(255,255,255,.90)", "rgba(255,255,255,.04)", "rgba(255,255,255,.18)")
+
+
+def chip_palette_for_market(mkt: str):
+    m = str(mkt).upper()
+    if "MARKET OPEN" in m or "24/7 OPEN" in m:
+        return ("#34ff9a", "rgba(52,255,154,.08)", "rgba(52,255,154,.45)")
+    if "PRE" in m:
+        return ("#58d7ff", "rgba(88,215,255,.08)", "rgba(88,215,255,.45)")
+    if "AFTER" in m:
+        return ("#ffcc66", "rgba(255,204,102,.08)", "rgba(255,204,102,.45)")
+    return ("rgba(255,255,255,.80)", "rgba(255,255,255,.03)", "rgba(255,255,255,.14)")
+
+
+def chip_palette_for_regime(regime: str):
+    r = str(regime).upper()
+    if "TREND" in r:
+        return ("#b18cff", "rgba(177,140,255,.10)", "rgba(177,140,255,.45)")
+    if "RANGE" in r:
+        return ("#58d7ff", "rgba(88,215,255,.08)", "rgba(88,215,255,.45)")
+    return ("rgba(255,255,255,.85)", "rgba(255,255,255,.04)", "rgba(255,255,255,.18)")
+
+
+def chip_palette_for_mode(mode: str):
+    m = str(mode).upper()
+    if "FULL SEND" in m:
+        return ("#ffcc66", "rgba(255,204,102,.08)", "rgba(255,204,102,.45)")
+    return ("rgba(255,255,255,.88)", "rgba(255,255,255,.04)", "rgba(255,255,255,.18)")
+
+
+def chip_palette_for_score(score: int):
+    try:
+        s = int(score)
+    except Exception:
+        s = 0
+    if s >= 75:
+        return ("#34ff9a", "rgba(52,255,154,.08)", "rgba(52,255,154,.45)")
+    if s >= 55:
+        return ("#ffcc66", "rgba(255,204,102,.08)", "rgba(255,204,102,.45)")
+    return ("rgba(255,255,255,.82)", "rgba(255,255,255,.03)", "rgba(255,255,255,.14)")
+
+
 # =========================
 # Data Fetching
 # =========================
@@ -329,7 +386,6 @@ def fetch_intraday(symbol: str, interval: str, period: str) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
     df = df.rename_axis("Datetime").reset_index()
-    # Normalize columns
     for col in ["Open", "High", "Low", "Close", "Volume"]:
         if col not in df.columns:
             df[col] = np.nan
@@ -337,7 +393,7 @@ def fetch_intraday(symbol: str, interval: str, period: str) -> pd.DataFrame:
     return df
 
 
-def get_last_price(df_1m: pd.DataFrame, df_5m: pd.DataFrame) -> tuple[float, pd.Timestamp]:
+def get_last_price(df_1m: pd.DataFrame, df_5m: pd.DataFrame):
     if df_1m is not None and not df_1m.empty:
         return float(df_1m["Close"].iloc[-1]), df_1m["Datetime"].iloc[-1]
     if df_5m is not None and not df_5m.empty:
@@ -368,7 +424,6 @@ class EngineOut:
 
 
 def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> EngineOut:
-    # Defaults
     price = np.nan
     last_time = "—"
     if df_5m is None:
@@ -380,7 +435,6 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
     if pd.notna(tstamp):
         last_time = str(tstamp)
 
-    # Not enough data
     if df_5m.empty or len(df_5m) < 20:
         return EngineOut(
             price=price,
@@ -400,7 +454,6 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
             why="Not enough 5m session data yet — let more candles print.",
         )
 
-    # Build indicators (5m brain)
     d5 = df_5m.copy()
     d5["EMA9"] = ema(d5["Close"], 9)
     d5["EMA21"] = ema(d5["Close"], 21)
@@ -412,7 +465,6 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
     atr5 = float(d5["ATR"].iloc[-1])
     chop5 = float(d5["CHOP"].iloc[-1])
 
-    # Regime
     if np.isnan(chop5):
         regime = "MIXED"
     elif chop5 >= 60:
@@ -422,13 +474,11 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
     else:
         regime = "MIXED"
 
-    # Trend / slope
     ema9_now = float(d5["EMA9"].iloc[-1])
     ema21_now = float(d5["EMA21"].iloc[-1])
     ema9_prev = float(d5["EMA9"].iloc[-4]) if len(d5) >= 4 else ema9_now
     slope9 = ema9_now - ema9_prev
 
-    # Bias logic (more “trader” less “professor”)
     bull_stack = (ema9_now > ema21_now) and (price > vwap5)
     bear_stack = (ema9_now < ema21_now) and (price < vwap5)
 
@@ -442,7 +492,6 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
         bias = "NEUTRAL"
         direction = "WAIT"
 
-    # 1m trigger indicators (for entries/heads up)
     trigger_ok = False
     heads_up = False
     if not df_1m.empty and len(df_1m) >= 30:
@@ -455,7 +504,6 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
         ema9_1 = float(d1["EMA9"].iloc[-1])
         vwap1 = float(d1["VWAP"].iloc[-1])
 
-        # Reclaim / reject logic (fast)
         if direction == "CALLS":
             heads_up = (c > ema9_1 and c1 <= ema9_1) or (c > vwap1 and c1 <= vwap1)
             trigger_ok = (c > ema9_1 and c > vwap1)
@@ -463,34 +511,25 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
             heads_up = (c < ema9_1 and c1 >= ema9_1) or (c < vwap1 and c1 >= vwap1)
             trigger_ok = (c < ema9_1 and c < vwap1)
         else:
-            # neutral: still allow heads up if strong reclaim/reject
             heads_up = abs(c - vwap1) <= max(atr5 * 0.25, 0.05)
 
-    # Score (aggressive)
     score = 0
-
-    # Bias contribution
-    if bias == "BULLISH":
-        score += 32
-    elif bias == "BEARISH":
+    if bias in ("BULLISH", "BEARISH"):
         score += 32
     else:
         score += 12
 
-    # Alignment / momentum
     if direction != "WAIT":
         if (direction == "CALLS" and price > ema9_now) or (direction == "PUTS" and price < ema9_now):
             score += 18
         if (direction == "CALLS" and slope9 > 0) or (direction == "PUTS" and slope9 < 0):
             score += 12
 
-    # Trigger
     if trigger_ok:
         score += 22
     elif heads_up:
         score += 10
 
-    # Chop penalty (we still trade, but we’re not idiots)
     if not np.isnan(chop5):
         if chop5 >= 65:
             score -= 22
@@ -501,15 +540,13 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
 
     score = int(max(0, min(100, score)))
 
-    # Thresholds
     if mode == "FULL SEND":
         entry_th = 45
         caution_th = 32
-    else:  # AGGRESSIVE
+    else:
         entry_th = 55
         caution_th = 40
 
-    # Invalidation level (simple, fast)
     if direction == "CALLS":
         invalid = min(vwap5, ema21_now) - max(atr5 * 0.25, 0.05)
     elif direction == "PUTS":
@@ -517,10 +554,8 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
     else:
         invalid = vwap5
 
-    # Expected move “FROM HERE” (ATR-based)
-    # Wider when FULL SEND, slightly tighter when AGGRESSIVE
     if np.isnan(atr5) or atr5 <= 0:
-        atr5 = max(abs(price) * 0.001, 0.25)  # fallback
+        atr5 = max(abs(price) * 0.001, 0.25)
 
     if mode == "FULL SEND":
         m1, m2, m3 = 1.20, 2.00, 3.00
@@ -536,12 +571,10 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
         poss = price - atr5 * m2
         stretch = price - atr5 * m3
     else:
-        # Neutral: show both sides around price
         likely = price - atr5 * 0.9
         poss = price + atr5 * 0.9
         stretch = price + atr5 * 1.6
 
-    # Action logic (more signals)
     why = ""
     if direction == "WAIT":
         if heads_up:
@@ -551,7 +584,6 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
             action = "WAIT — NO EDGE"
             why = "No clean alignment yet."
     else:
-        # exit if invalid breached
         if (direction == "CALLS" and price < invalid) or (direction == "PUTS" and price > invalid):
             action = "EXIT / RESET"
             why = "Invalidation breached. Step away until alignment returns."
@@ -591,9 +623,7 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
 # =========================
 # Universe / Assets
 # =========================
-# Your requested tickers + a “top traded” core list baked in.
 ASSETS = {
-    # Core
     "SPY": "SPY",
     "QQQ": "QQQ",
     "IWM": "IWM",
@@ -619,7 +649,6 @@ ASSETS = {
     "XOM": "XOM",
     "OXY": "OXY",
 
-    # Big “top-traded” defaults (common daily volume names)
     "AAPL": "AAPL",
     "MSFT": "MSFT",
     "AMZN": "AMZN",
@@ -631,7 +660,6 @@ ASSETS = {
     "BAC": "BAC",
     "NIO": "NIO",
 
-    # Crypto
     "BTC": "CRYPTO:BTC-USD",
     "ETH": "CRYPTO:ETH-USD",
     "XRP": "CRYPTO:XRP-USD",
@@ -639,7 +667,6 @@ ASSETS = {
     "SOL": "CRYPTO:SOL-USD",
     "DOGE": "CRYPTO:DOGE-USD",
 }
-
 
 UNIVERSE_KEYS = list(ASSETS.keys())
 
@@ -649,49 +676,72 @@ UNIVERSE_KEYS = list(ASSETS.keys())
 # =========================
 st.sidebar.markdown("## Controls")
 
-asset_label = st.sidebar.selectbox("Asset", UNIVERSE_KEYS, index=UNIVERSE_KEYS.index("SPY"))
-asset_key = ASSETS[asset_label]
-symbol = yf_symbol(asset_key)
+# Keep a single source of truth for asset selection
+if "asset_label" not in st.session_state:
+    st.session_state.asset_label = "SPY"
+
+# Sidebar picker (desktop-friendly)
+sb_asset = st.sidebar.selectbox(
+    "Asset",
+    UNIVERSE_KEYS,
+    index=UNIVERSE_KEYS.index(st.session_state.asset_label) if st.session_state.asset_label in UNIVERSE_KEYS else 0,
+    key="asset_label_sidebar",
+)
+
+# Sync sidebar -> session
+st.session_state.asset_label = sb_asset
 
 mode = st.sidebar.radio("Mode", ["AGGRESSIVE", "FULL SEND"], index=0)
 
-auto = st.sidebar.toggle("Auto-refresh", value=True)
-refresh_seconds = st.sidebar.selectbox("Refresh seconds", [10, 15, 20, 30, 45, 60], index=0)
+# Auto-refresh controls:
+# If streamlit-autorefresh is missing, we quietly fall back to manual refresh (no scary caption).
+if _AUTORF_AVAILABLE:
+    auto = st.sidebar.toggle("Auto-refresh", value=True)
+    refresh_seconds = st.sidebar.selectbox("Refresh seconds", [10, 15, 20, 30, 45, 60], index=0)
+else:
+    auto = False
+    refresh_seconds = 10  # unused, but safe default
 
 refresh_now = st.sidebar.button("🔁 Refresh now", use_container_width=True)
 
-# Auto-refresh trigger
 if auto and _AUTORF_AVAILABLE:
     st_autorefresh(interval=refresh_seconds * 1000, key="autorf")
-elif auto and not _AUTORF_AVAILABLE:
-    st.sidebar.caption("Auto-refresh not available (missing streamlit-autorefresh). Use Refresh now.")
 
-# Manual refresh rerun
 if refresh_now:
     st.cache_data.clear()
     st.rerun()
 
 
 # =========================
-# Header
+# Header + MOBILE ticker picker (always visible)
 # =========================
 st.title("Lockout Signals • Command Center")
+
+# Main-screen ticker selector (mobile-friendly)
+# This fixes the “mobile doesn’t show dropdown” pain by putting it on the main canvas too.
+st.session_state.asset_label = st.selectbox(
+    "Ticker (mobile-friendly)",
+    UNIVERSE_KEYS,
+    index=UNIVERSE_KEYS.index(st.session_state.asset_label) if st.session_state.asset_label in UNIVERSE_KEYS else 0,
+    key="asset_label_main",
+)
+
+asset_label = st.session_state.asset_label
+asset_key = ASSETS[asset_label]
+symbol = yf_symbol(asset_key)
 
 
 # =========================
 # Fetch Data
 # =========================
-# 5m "brain" — 1d is enough for session VWAP + ATR.
 df_5m = fetch_intraday(symbol, interval="5m", period="1d")
-
-# 1m "trigger" — 1d sometimes fails; fallback to 5d
 df_1m = fetch_intraday(symbol, interval="1m", period="1d")
 if df_1m.empty:
     df_1m = fetch_intraday(symbol, interval="1m", period="5d")
 
 out = compute_engine(df_1m, df_5m, mode=mode)
-
 mkt = market_status(asset_key)
+
 
 # =========================
 # Top Movers Sidebar (Universe)
@@ -701,7 +751,6 @@ st.sidebar.markdown("### Top Movers (Universe)")
 
 def movers_table(universe_keys: list[str]) -> pd.DataFrame:
     rows = []
-    # Pull 5m for each symbol (fast-ish; TTL cache helps)
     for k in universe_keys:
         sym = yf_symbol(ASSETS[k])
         try:
@@ -719,19 +768,27 @@ def movers_table(universe_keys: list[str]) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame(columns=["Ticker", "%", "Last"])
     df = pd.DataFrame(rows, columns=["Ticker", "%", "Last"]).sort_values("%", ascending=False)
-    df["%"] = df["%"].map(lambda x: f"{x:+.2f}%")
-    df["Last"] = df["Last"].map(lambda x: f"{x:,.2f}")
-    return df
 
-movers = movers_table(UNIVERSE_KEYS)
+    # Keep a numeric column for sorting, but display formatted strings
+    df_display = df.copy()
+    df_display["%"] = df_display["%"].map(lambda x: f"{x:+.2f}%")
+    df_display["Last"] = df_display["Last"].map(lambda x: f"{x:,.2f}")
+    return df_display, df
+
+movers_display, movers_raw = movers_table(UNIVERSE_KEYS)
 
 col_up, col_dn = st.sidebar.columns(2)
 with col_up:
     st.caption("Top 10 Up")
-    st.dataframe(movers.head(10), use_container_width=True, hide_index=True)
+    st.dataframe(movers_display.head(10), use_container_width=True, hide_index=True)
 with col_dn:
     st.caption("Top 10 Down")
-    st.dataframe(movers.tail(10).sort_values("%", ascending=True), use_container_width=True, hide_index=True)
+    # Use raw sort for true bottom, then display formatted
+    bottom = movers_raw.sort_values("%", ascending=True).head(10)
+    bottom_display = bottom.copy()
+    bottom_display["%"] = bottom_display["%"].map(lambda x: f"{x:+.2f}%")
+    bottom_display["Last"] = bottom_display["Last"].map(lambda x: f"{x:,.2f}")
+    st.dataframe(bottom_display, use_container_width=True, hide_index=True)
 
 
 # =========================
@@ -751,6 +808,23 @@ command_feed(feed, tone_class(out.bias, out.action))
 subhead = f"{asset_label} • 5m Brain / 1m Trigger"
 action_color = color_for_action(out.action)
 
+# Color chips
+bd_fg, bd_bg, bd_border = chip_palette_for_bias_direction(out.bias, out.direction)
+mk_fg, mk_bg, mk_border = chip_palette_for_market(mkt)
+rg_fg, rg_bg, rg_border = chip_palette_for_regime(out.regime)
+sc_fg, sc_bg, sc_border = chip_palette_for_score(out.score)
+md_fg, md_bg, md_border = chip_palette_for_mode(mode)
+
+chips_html = f"""
+<div class="k_chips">
+  {chip(f"{out.bias} — {out.direction}", bd_fg, bd_bg, bd_border)}
+  {chip(mkt, mk_fg, mk_bg, mk_border)}
+  {chip(f"REGIME: {out.regime}", rg_fg, rg_bg, rg_border)}
+  {chip(f"SCORE: {out.score}/100", sc_fg, sc_bg, sc_border)}
+  {chip(f"MODE: {mode}", md_fg, md_bg, md_border)}
+</div>
+"""
+
 st.markdown(
     f"""
 <div class="cc-card">
@@ -759,13 +833,7 @@ st.markdown(
   <div class="k_price" style="color: {action_color};">{fmt_price(out.price)}</div>
   <div class="k_action" style="color: {action_color};">{out.action}</div>
 
-  <div class="k_chips">
-    <div class="k_chip">{out.bias} — {out.direction}</div>
-    <div class="k_chip">{mkt}</div>
-    <div class="k_chip">REGIME: {out.regime}</div>
-    <div class="k_chip">SCORE: {out.score}/100</div>
-    <div class="k_chip">MODE: {mode}</div>
-  </div>
+  {chips_html}
 
   <div class="k_small"><b>EXPECTED MOVE (FROM HERE)</b></div>
   <div class="k_small" style="margin-top:6px;">
@@ -822,8 +890,7 @@ with st.expander("Show chart (Close / EMA9 / VWAP)", expanded=False):
         d1 = df_1m.copy()
         d1["EMA9"] = ema(d1["Close"], 9)
         d1["VWAP"] = vwap_intraday(d1)
-        d1 = d1.tail(240)  # keep it snappy
-
+        d1 = d1.tail(240)
         chart_df = d1.set_index("Datetime")[["Close", "EMA9", "VWAP"]]
         st.line_chart(chart_df)
     elif df_5m is not None and not df_5m.empty:
@@ -834,13 +901,3 @@ with st.expander("Show chart (Close / EMA9 / VWAP)", expanded=False):
         st.line_chart(chart_df)
     else:
         st.info("No chart data available yet.")
-
-
-# =========================
-# Debug panel (optional)
-# =========================
-with st.expander("Engine debug (optional)", expanded=False):
-    st.write("Symbol:", symbol)
-    st.write("Data points 5m:", len(df_5m))
-    st.write("Data points 1m:", len(df_1m))
-    st.write(out)
