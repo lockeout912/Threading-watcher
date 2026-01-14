@@ -1,9 +1,9 @@
 # app.py — Lockout Signals • Command Center
 # Single-file Streamlit app. Copy/paste whole file.
 
-import math
 import datetime as dt
 from dataclasses import dataclass
+from typing import List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -19,7 +19,7 @@ except Exception:
 # yfinance for free-ish quotes (not true tick-level; best effort)
 import yfinance as yf
 
-# Python 3.9+ timezone
+# Python timezone (3.9+ zoneinfo). Safe fallback if missing.
 try:
     from zoneinfo import ZoneInfo
 except Exception:
@@ -46,6 +46,48 @@ html, body, [data-testid="stAppViewContainer"] {
 [data-testid="stHeader"] { background: rgba(0,0,0,0) !important; }
 [data-testid="stSidebar"] { background: #0a0e13 !important; }
 
+/* ===== Sticky Mission Header ===== */
+.mission-bar{
+  position: sticky;
+  top: 0;
+  z-index: 9999;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: linear-gradient(90deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+  box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  padding: 10px 14px;
+  margin: 6px 0 14px 0;
+}
+.mission-row{
+  display:flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+.mission-title{
+  font-weight: 900;
+  letter-spacing: .8px;
+  font-size: 14px;
+  opacity: .92;
+}
+.mission-meta{
+  display:flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items:center;
+  justify-content:flex-end;
+}
+.mchip{
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.03);
+  padding: 6px 10px;
+  font-size: 12px;
+  opacity: .92;
+  white-space: nowrap;
+}
+
 /* ===== Responsive typography ===== */
 :root{
   --price-size: clamp(52px, 10vw, 110px);
@@ -63,6 +105,19 @@ html, body, [data-testid="stAppViewContainer"] {
   padding: 22px 18px;
   box-shadow: 0 12px 40px rgba(0,0,0,.35);
 }
+
+/* layout grid: main content + right gauge (desktop) */
+.cc-grid{
+  display:grid;
+  grid-template-columns: 1fr 190px;
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 900px){
+  .cc-grid{ grid-template-columns: 1fr; }
+}
+
+/* ===== Subhead / Price / Action ===== */
 .k_subhead{
   font-size: var(--subhead-size);
   text-align: center;
@@ -74,21 +129,51 @@ html, body, [data-testid="stAppViewContainer"] {
   font-size: var(--price-size);
   line-height: 1.0;
   text-align: center;
-  font-weight: 800;
+  font-weight: 900;
   margin: 6px 0 6px 0;
 }
 .k_action{
   font-size: var(--action-size);
   line-height: 1.05;
   text-align: center;
-  font-weight: 800;
-  letter-spacing: 1.2px;
+  font-weight: 900;
+  letter-spacing: 1.1px;
   margin: 4px 0 12px 0;
 }
 .k_small{
   font-size: var(--small-size);
   opacity: .80;
   text-align: center;
+}
+
+/* ===== Action Effects ===== */
+@keyframes glowPulse {
+  0%   { text-shadow: 0 0 0 rgba(52,255,154,0); }
+  50%  { text-shadow: 0 0 18px rgba(52,255,154,.55), 0 0 36px rgba(52,255,154,.25); }
+  100% { text-shadow: 0 0 0 rgba(52,255,154,0); }
+}
+@keyframes exitShake {
+  0% { transform: translateX(0); }
+  15% { transform: translateX(-2px); }
+  30% { transform: translateX(2px); }
+  45% { transform: translateX(-2px); }
+  60% { transform: translateX(2px); }
+  75% { transform: translateX(-1px); }
+  100% { transform: translateX(0); }
+}
+@keyframes exitPulse {
+  0% { box-shadow: 0 0 0 rgba(255,91,110,0); }
+  50% { box-shadow: 0 0 22px rgba(255,91,110,.35); }
+  100% { box-shadow: 0 0 0 rgba(255,91,110,0); }
+}
+.action-entry{
+  animation: glowPulse 1.6s ease-in-out infinite;
+}
+.action-exit{
+  display:inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  animation: exitShake .6s ease-in-out infinite, exitPulse 1.2s ease-in-out infinite;
 }
 
 /* ===== Chips ===== */
@@ -106,15 +191,23 @@ html, body, [data-testid="stAppViewContainer"] {
   white-space: nowrap;
 }
 
+/* ===== Heat Badge ===== */
+.heat-hot { background: rgba(255,91,110,.15) !important; border-color: rgba(255,91,110,.35) !important; }
+.heat-warm{ background: rgba(255,204,102,.12) !important; border-color: rgba(255,204,102,.30) !important; }
+.heat-cool{ background: rgba(88,215,255,.12) !important; border-color: rgba(88,215,255,.30) !important; }
+.heat-neutral{ background: rgba(255,255,255,.04) !important; }
+
 /* ===== Marquee (command feed) ===== */
+/* NASDAQ blue background */
 .marquee-wrap{
   width: 100%;
   overflow: hidden;
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.14);
+  background: linear-gradient(90deg, rgba(0,51,160,.85), rgba(0,31,90,.85)); /* NASDAQ-ish blue */
   padding: 10px 0;
   margin: 10px 0 18px 0;
+  box-shadow: 0 10px 24px rgba(0,0,0,.35);
 }
 .marquee{
   display: inline-block;
@@ -123,6 +216,7 @@ html, body, [data-testid="stAppViewContainer"] {
   font-size: clamp(12px, 2.4vw, 14px);
   letter-spacing: .6px;
   padding-left: 100%;
+  font-weight: 800;
 }
 @keyframes scroll-left{
   0% { transform: translateX(0); }
@@ -131,7 +225,7 @@ html, body, [data-testid="stAppViewContainer"] {
 .marq-good { color: #34ff9a; }
 .marq-warn { color: #ffcc66; }
 .marq-bad  { color: #ff5b6e; }
-.marq-neutral { color: rgba(255,255,255,.82); }
+.marq-neutral { color: rgba(255,255,255,.92); }
 
 /* ===== Compact KPI row ===== */
 .kpi-row{
@@ -153,13 +247,64 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 .kpi .value{
   font-size: 22px;
-  font-weight: 800;
+  font-weight: 900;
   margin-top: 6px;
 }
 .kpi .delta{
   font-size: 12px;
   opacity: .75;
   margin-top: 2px;
+}
+
+/* ===== Momentum/Pressure Vertical Gauge ===== */
+.gauge{
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.03);
+  padding: 12px;
+  box-shadow: 0 10px 26px rgba(0,0,0,.28);
+}
+.gauge-title{
+  text-align:center;
+  font-size: 12px;
+  opacity:.82;
+  letter-spacing:.9px;
+  font-weight: 900;
+  margin-bottom: 10px;
+}
+.gauge-wrap{
+  height: 240px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.18);
+  position: relative;
+  overflow: hidden;
+}
+.gauge-fill{
+  position:absolute;
+  left:0;
+  bottom:0;
+  width:100%;
+  border-radius: 16px;
+  opacity: .95;
+}
+.gauge-score{
+  text-align:center;
+  font-size: 34px;
+  font-weight: 900;
+  margin-top: 10px;
+}
+.gauge-sub{
+  text-align:center;
+  font-size: 12px;
+  opacity:.76;
+  margin-top: 2px;
+}
+.gauge-arrow{
+  text-align:center;
+  font-size: 16px;
+  font-weight: 900;
+  margin-top: 8px;
 }
 
 /* ===== Mobile padding ===== */
@@ -180,9 +325,8 @@ def is_crypto_symbol(asset_key: str) -> bool:
 
 
 def yf_symbol(asset_key: str) -> str:
-    # Map internal keys to yfinance tickers
     if asset_key.startswith("CRYPTO:"):
-        return asset_key.split("CRYPTO:", 1)[1]  # e.g. BTC-USD
+        return asset_key.split("CRYPTO:", 1)[1]
     return asset_key
 
 
@@ -193,17 +337,13 @@ def now_et() -> dt.datetime:
 
 
 def market_status(asset_key: str) -> str:
-    # Crypto = always open
     if is_crypto_symbol(asset_key):
         return "24/7 OPEN"
 
     t = now_et()
-    # Weekend
     if t.weekday() >= 5:
         return "CLOSED"
 
-    # US equity session (rough, no holiday calendar)
-    # Pre: 04:00–09:30, Regular: 09:30–16:00, After: 16:00–20:00
     hhmm = t.hour * 60 + t.minute
     pre = 4 * 60
     open_ = 9 * 60 + 30
@@ -247,10 +387,8 @@ def choppiness(df: pd.DataFrame, n: int = 14) -> pd.Series:
 
 
 def vwap_intraday(df: pd.DataFrame) -> pd.Series:
-    # VWAP based on typical price and volume
     tp = (df["High"] + df["Low"] + df["Close"]) / 3.0
     vol = df["Volume"].copy()
-    # If volume missing (crypto sometimes), fake volume = 1
     vol = vol.replace(0, np.nan).fillna(1.0)
     cum = (tp * vol).cumsum()
     cumv = vol.cumsum()
@@ -258,16 +396,13 @@ def vwap_intraday(df: pd.DataFrame) -> pd.Series:
 
 
 def fmt_price(x: float, decimals: int = 2) -> str:
-    try:
-        if np.isnan(x):
-            return "—"
-    except Exception:
-        pass
+    if x is None or np.isnan(x):
+        return "—"
     return f"{x:,.{decimals}f}"
 
 
 def color_for_action(action: str) -> str:
-    a = str(action).upper()
+    a = (action or "").upper()
     if "ENTRY" in a or "ACTIVE" in a:
         return "#34ff9a"
     if "HEADS" in a:
@@ -280,11 +415,11 @@ def color_for_action(action: str) -> str:
         return "#ff5b6e"
     if "CALL" in a or "BULL" in a:
         return "#34ff9a"
-    return "rgba(255,255,255,.85)"
+    return "rgba(255,255,255,.90)"
 
 
 def tone_class(bias: str, action: str) -> str:
-    a = str(action).upper()
+    a = (action or "").upper()
     if "EXIT" in a or "RESET" in a:
         return "bad"
     if "CAUTION" in a:
@@ -293,7 +428,7 @@ def tone_class(bias: str, action: str) -> str:
         return "good"
     if "HEADS" in a:
         return "warn"
-    b = str(bias).upper()
+    b = (bias or "").upper()
     if "BULL" in b:
         return "good"
     if "BEAR" in b:
@@ -301,7 +436,7 @@ def tone_class(bias: str, action: str) -> str:
     return "neutral"
 
 
-def command_feed(text: str, cls: str):
+def command_feed(text: str, cls: str) -> None:
     st.markdown(
         f"""
 <div class="marquee-wrap">
@@ -314,78 +449,64 @@ def command_feed(text: str, cls: str):
     )
 
 
-def chip(label: str, fg: str, bg: str, border: str) -> str:
-    # HTML for a color-coded chip using the existing .k_chip sizing
-    return f"""
-<div class="k_chip" style="
-  color:{fg};
-  background:{bg};
-  border:1px solid {border};
-">
-  {label}
-</div>
-"""
+def direction_arrow(direction: str) -> Tuple[str, str]:
+    d = (direction or "").upper()
+    if "CALL" in d:
+        return "▲", "#34ff9a"
+    if "PUT" in d:
+        return "▼", "#ff5b6e"
+    return "➜", "rgba(255,255,255,.85)"
 
 
-def chip_palette_for_bias_direction(bias: str, direction: str):
-    b = str(bias).upper()
-    d = str(direction).upper()
-    if "BULL" in b or "CALL" in d:
-        return ("#34ff9a", "rgba(52,255,154,.08)", "rgba(52,255,154,.45)")
-    if "BEAR" in b or "PUT" in d:
-        return ("#ff5b6e", "rgba(255,91,110,.08)", "rgba(255,91,110,.45)")
-    return ("rgba(255,255,255,.90)", "rgba(255,255,255,.04)", "rgba(255,255,255,.18)")
+def heat_badge(score: int, regime: str) -> Tuple[str, str]:
+    # A simple “trader vibe” badge: score + regime blend
+    r = (regime or "").upper()
+    if score >= 72 and r == "TREND":
+        return "SESSION HEAT: 🔥 HOT", "heat-hot"
+    if score >= 55:
+        return "SESSION HEAT: 🌤 WARM", "heat-warm"
+    if score >= 38:
+        return "SESSION HEAT: ❄ COOL", "heat-cool"
+    return "SESSION HEAT: 🧊 NEUTRAL", "heat-neutral"
 
 
-def chip_palette_for_market(mkt: str):
-    m = str(mkt).upper()
-    if "MARKET OPEN" in m or "24/7 OPEN" in m:
-        return ("#34ff9a", "rgba(52,255,154,.08)", "rgba(52,255,154,.45)")
-    if "PRE" in m:
-        return ("#58d7ff", "rgba(88,215,255,.08)", "rgba(88,215,255,.45)")
-    if "AFTER" in m:
-        return ("#ffcc66", "rgba(255,204,102,.08)", "rgba(255,204,102,.45)")
-    return ("rgba(255,255,255,.80)", "rgba(255,255,255,.03)", "rgba(255,255,255,.14)")
+def action_effect_class(action: str) -> str:
+    a = (action or "").upper()
+    if "ENTRY ACTIVE" in a:
+        return "action-entry"
+    if "EXIT" in a or "RESET" in a:
+        return "action-exit"
+    return ""
 
 
-def chip_palette_for_regime(regime: str):
-    r = str(regime).upper()
-    if "TREND" in r:
-        return ("#b18cff", "rgba(177,140,255,.10)", "rgba(177,140,255,.45)")
-    if "RANGE" in r:
-        return ("#58d7ff", "rgba(88,215,255,.08)", "rgba(88,215,255,.45)")
-    return ("rgba(255,255,255,.85)", "rgba(255,255,255,.04)", "rgba(255,255,255,.18)")
-
-
-def chip_palette_for_mode(mode: str):
-    m = str(mode).upper()
-    if "FULL SEND" in m:
-        return ("#ffcc66", "rgba(255,204,102,.08)", "rgba(255,204,102,.45)")
-    return ("rgba(255,255,255,.88)", "rgba(255,255,255,.04)", "rgba(255,255,255,.18)")
-
-
-def chip_palette_for_score(score: int):
-    try:
-        s = int(score)
-    except Exception:
-        s = 0
-    if s >= 75:
-        return ("#34ff9a", "rgba(52,255,154,.08)", "rgba(52,255,154,.45)")
-    if s >= 55:
-        return ("#ffcc66", "rgba(255,204,102,.08)", "rgba(255,204,102,.45)")
-    return ("rgba(255,255,255,.82)", "rgba(255,255,255,.03)", "rgba(255,255,255,.14)")
+def gauge_color(bias: str, action: str) -> str:
+    # Green for bullish/entry, red for bearish/exit, yellow for caution
+    a = (action or "").upper()
+    b = (bias or "").upper()
+    if "EXIT" in a or "RESET" in a:
+        return "rgba(255,91,110,.90)"
+    if "CAUTION" in a or "HEADS" in a:
+        return "rgba(255,204,102,.92)"
+    if "ENTRY" in a or "ACTIVE" in a:
+        return "rgba(52,255,154,.90)"
+    if "BEAR" in b:
+        return "rgba(255,91,110,.85)"
+    if "BULL" in b:
+        return "rgba(52,255,154,.85)"
+    return "rgba(88,215,255,.75)"
 
 
 # =========================
 # Data Fetching
 # =========================
-@st.cache_data(ttl=12)  # fast refresh; rely on TTL
+@st.cache_data(ttl=12)  # fast refresh; TTL keeps it snappy
 def fetch_intraday(symbol: str, interval: str, period: str) -> pd.DataFrame:
     t = yf.Ticker(symbol)
     df = t.history(interval=interval, period=period)
     if df is None or df.empty:
         return pd.DataFrame()
     df = df.rename_axis("Datetime").reset_index()
+
     for col in ["Open", "High", "Low", "Close", "Volume"]:
         if col not in df.columns:
             df[col] = np.nan
@@ -393,7 +514,7 @@ def fetch_intraday(symbol: str, interval: str, period: str) -> pd.DataFrame:
     return df
 
 
-def get_last_price(df_1m: pd.DataFrame, df_5m: pd.DataFrame):
+def get_last_price(df_1m: pd.DataFrame, df_5m: pd.DataFrame) -> Tuple[float, pd.Timestamp]:
     if df_1m is not None and not df_1m.empty:
         return float(df_1m["Close"].iloc[-1]), df_1m["Datetime"].iloc[-1]
     if df_5m is not None and not df_5m.empty:
@@ -402,7 +523,7 @@ def get_last_price(df_1m: pd.DataFrame, df_5m: pd.DataFrame):
 
 
 # =========================
-# Signal Engine
+# Signal Engine (UNCHANGED LOGIC)
 # =========================
 @dataclass
 class EngineOut:
@@ -514,7 +635,9 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
             heads_up = abs(c - vwap1) <= max(atr5 * 0.25, 0.05)
 
     score = 0
-    if bias in ("BULLISH", "BEARISH"):
+    if bias == "BULLISH":
+        score += 32
+    elif bias == "BEARISH":
         score += 32
     else:
         score += 12
@@ -589,16 +712,16 @@ def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> Engin
             why = "Invalidation breached. Step away until alignment returns."
         else:
             if score >= entry_th and trigger_ok:
-                action = f"ENTRY ACTIVE — {direction}"
+                action = "ENTRY ACTIVE — " + direction
                 why = "Alignment + trigger confirmed. Trade the direction; manage risk."
             elif score >= caution_th and (trigger_ok or heads_up):
-                action = f"CAUTION — {direction}"
+                action = "CAUTION — " + direction
                 why = "Direction favored, but edge is thinner. Small size / wait for cleaner reclaim."
             elif heads_up:
                 action = "HEADS UP"
                 why = "Early conditions forming. Wait for confirmation."
             else:
-                action = f"{direction} — WAIT"
+                action = direction + " — WAIT"
                 why = "Direction bias exists but trigger not confirmed."
 
     return EngineOut(
@@ -667,8 +790,7 @@ ASSETS = {
     "SOL": "CRYPTO:SOL-USD",
     "DOGE": "CRYPTO:DOGE-USD",
 }
-
-UNIVERSE_KEYS = list(ASSETS.keys())
+UNIVERSE_KEYS: List[str] = list(ASSETS.keys())
 
 
 # =========================
@@ -676,59 +798,25 @@ UNIVERSE_KEYS = list(ASSETS.keys())
 # =========================
 st.sidebar.markdown("## Controls")
 
-# Keep a single source of truth for asset selection
-if "asset_label" not in st.session_state:
-    st.session_state.asset_label = "SPY"
-
-# Sidebar picker (desktop-friendly)
-sb_asset = st.sidebar.selectbox(
-    "Asset",
-    UNIVERSE_KEYS,
-    index=UNIVERSE_KEYS.index(st.session_state.asset_label) if st.session_state.asset_label in UNIVERSE_KEYS else 0,
-    key="asset_label_sidebar",
-)
-
-# Sync sidebar -> session
-st.session_state.asset_label = sb_asset
+asset_label = st.sidebar.selectbox("Asset", UNIVERSE_KEYS, index=UNIVERSE_KEYS.index("SPY"))
+asset_key = ASSETS[asset_label]
+symbol = yf_symbol(asset_key)
 
 mode = st.sidebar.radio("Mode", ["AGGRESSIVE", "FULL SEND"], index=0)
 
-# Auto-refresh controls:
-# If streamlit-autorefresh is missing, we quietly fall back to manual refresh (no scary caption).
-if _AUTORF_AVAILABLE:
-    auto = st.sidebar.toggle("Auto-refresh", value=True)
-    refresh_seconds = st.sidebar.selectbox("Refresh seconds", [10, 15, 20, 30, 45, 60], index=0)
-else:
-    auto = False
-    refresh_seconds = 10  # unused, but safe default
-
+auto = st.sidebar.toggle("Auto-refresh", value=True)
+refresh_seconds = st.sidebar.selectbox("Refresh seconds", [10, 15, 20, 30, 45, 60], index=0)
 refresh_now = st.sidebar.button("🔁 Refresh now", use_container_width=True)
 
 if auto and _AUTORF_AVAILABLE:
     st_autorefresh(interval=refresh_seconds * 1000, key="autorf")
+elif auto and not _AUTORF_AVAILABLE:
+    # Quiet, non-panicky note. No “error energy.”
+    st.sidebar.caption("Auto-refresh requires streamlit-autorefresh. Manual refresh works fine.")
 
 if refresh_now:
     st.cache_data.clear()
     st.rerun()
-
-
-# =========================
-# Header + MOBILE ticker picker (always visible)
-# =========================
-st.title("Lockout Signals • Command Center")
-
-# Main-screen ticker selector (mobile-friendly)
-# This fixes the “mobile doesn’t show dropdown” pain by putting it on the main canvas too.
-st.session_state.asset_label = st.selectbox(
-    "Ticker (mobile-friendly)",
-    UNIVERSE_KEYS,
-    index=UNIVERSE_KEYS.index(st.session_state.asset_label) if st.session_state.asset_label in UNIVERSE_KEYS else 0,
-    key="asset_label_main",
-)
-
-asset_label = st.session_state.asset_label
-asset_key = ASSETS[asset_label]
-symbol = yf_symbol(asset_key)
 
 
 # =========================
@@ -742,6 +830,28 @@ if df_1m.empty:
 out = compute_engine(df_1m, df_5m, mode=mode)
 mkt = market_status(asset_key)
 
+arrow, arrow_color = direction_arrow(out.direction)
+heat_text, heat_cls = heat_badge(out.score, out.regime)
+
+# =========================
+# Mission Header (Sticky)
+# =========================
+st.markdown(
+    f"""
+<div class="mission-bar">
+  <div class="mission-row">
+    <div class="mission-title">🧠 LOCKOUT SIGNALS • COMMAND CENTER</div>
+    <div class="mission-meta">
+      <div class="mchip"><b>ASSET:</b> {asset_label}</div>
+      <div class="mchip"><b>STATUS:</b> {mkt}</div>
+      <div class="mchip"><b>MODE:</b> {mode}</div>
+      <div class="mchip"><b>LAST:</b> {out.last_time}</div>
+    </div>
+  </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
 # =========================
 # Top Movers Sidebar (Universe)
@@ -749,7 +859,7 @@ mkt = market_status(asset_key)
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Top Movers (Universe)")
 
-def movers_table(universe_keys: list[str]) -> pd.DataFrame:
+def movers_table(universe_keys: List[str]) -> pd.DataFrame:
     rows = []
     for k in universe_keys:
         sym = yf_symbol(ASSETS[k])
@@ -768,111 +878,119 @@ def movers_table(universe_keys: list[str]) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame(columns=["Ticker", "%", "Last"])
     df = pd.DataFrame(rows, columns=["Ticker", "%", "Last"]).sort_values("%", ascending=False)
+    df["%"] = df["%"].map(lambda x: f"{x:+.2f}%")
+    df["Last"] = df["Last"].map(lambda x: f"{x:,.2f}")
+    return df
 
-    # Keep a numeric column for sorting, but display formatted strings
-    df_display = df.copy()
-    df_display["%"] = df_display["%"].map(lambda x: f"{x:+.2f}%")
-    df_display["Last"] = df_display["Last"].map(lambda x: f"{x:,.2f}")
-    return df_display, df
-
-movers_display, movers_raw = movers_table(UNIVERSE_KEYS)
+movers = movers_table(UNIVERSE_KEYS)
 
 col_up, col_dn = st.sidebar.columns(2)
 with col_up:
     st.caption("Top 10 Up")
-    st.dataframe(movers_display.head(10), use_container_width=True, hide_index=True)
+    st.dataframe(movers.head(10), use_container_width=True, hide_index=True)
 with col_dn:
     st.caption("Top 10 Down")
-    # Use raw sort for true bottom, then display formatted
-    bottom = movers_raw.sort_values("%", ascending=True).head(10)
-    bottom_display = bottom.copy()
-    bottom_display["%"] = bottom_display["%"].map(lambda x: f"{x:+.2f}%")
-    bottom_display["Last"] = bottom_display["Last"].map(lambda x: f"{x:,.2f}")
-    st.dataframe(bottom_display, use_container_width=True, hide_index=True)
-
+    st.dataframe(movers.tail(10).sort_values("%", ascending=True), use_container_width=True, hide_index=True)
 
 # =========================
-# Command Feed (always on)
+# Command Feed (NASDAQ blue + colored text)
 # =========================
 feed = (
-    f"ACTION: {out.action} • BIAS: {out.bias} — {out.direction} • "
+    f"{arrow} ACTION: {out.action} • BIAS: {out.bias} — {out.direction} • "
     f"STATUS: {mkt} • REGIME: {out.regime} • SCORE: {out.score}/100 • "
     f"INVALID: {fmt_price(out.invalid)} • PRICE: {fmt_price(out.price)}"
 )
 command_feed(feed, tone_class(out.bias, out.action))
 
-
 # =========================
-# Main Command Card
+# Main Command Card + Right Gauge
 # =========================
 subhead = f"{asset_label} • 5m Brain / 1m Trigger"
 action_color = color_for_action(out.action)
+fx_class = action_effect_class(out.action)
 
-# Color chips
-bd_fg, bd_bg, bd_border = chip_palette_for_bias_direction(out.bias, out.direction)
-mk_fg, mk_bg, mk_border = chip_palette_for_market(mkt)
-rg_fg, rg_bg, rg_border = chip_palette_for_regime(out.regime)
-sc_fg, sc_bg, sc_border = chip_palette_for_score(out.score)
-md_fg, md_bg, md_border = chip_palette_for_mode(mode)
-
-chips_html = f"""
-<div class="k_chips">
-  {chip(f"{out.bias} — {out.direction}", bd_fg, bd_bg, bd_border)}
-  {chip(mkt, mk_fg, mk_bg, mk_border)}
-  {chip(f"REGIME: {out.regime}", rg_fg, rg_bg, rg_border)}
-  {chip(f"SCORE: {out.score}/100", sc_fg, sc_bg, sc_border)}
-  {chip(f"MODE: {mode}", md_fg, md_bg, md_border)}
-</div>
-"""
+g_color = gauge_color(out.bias, out.action)
+fill_pct = int(max(0, min(100, out.score)))
+arrow_char, arrow_col = direction_arrow(out.direction)
 
 st.markdown(
     f"""
 <div class="cc-card">
-  <div class="k_subhead">{subhead}</div>
+  <div class="cc-grid">
 
-  <div class="k_price" style="color: {action_color};">{fmt_price(out.price)}</div>
-  <div class="k_action" style="color: {action_color};">{out.action}</div>
+    <!-- LEFT: Core Command -->
+    <div>
+      <div class="k_subhead">{subhead}</div>
 
-  {chips_html}
+      <div class="k_price" style="color: {action_color};">
+        <span style="color:{arrow_col};">{arrow_char}</span> {fmt_price(out.price)}
+      </div>
 
-  <div class="k_small"><b>EXPECTED MOVE (FROM HERE)</b></div>
-  <div class="k_small" style="margin-top:6px;">
-    <span style="color:#34ff9a;"><b>LIKELY {fmt_price(out.likely)}</b></span>
-    &nbsp; | &nbsp;
-    <span style="color:rgba(255,255,255,.92);"><b>POSS {fmt_price(out.poss)}</b></span>
-    &nbsp; | &nbsp;
-    <span style="color:#34ff9a;"><b>STRETCH {fmt_price(out.stretch)}</b></span>
-  </div>
+      <div class="k_action {fx_class}" style="color: {action_color};">
+        {out.action}
+      </div>
 
-  <div class="k_small" style="margin-top:10px;">
-    Invalid: <b>{fmt_price(out.invalid)}</b> • Last update: <b>{out.last_time}</b>
-  </div>
+      <div class="k_chips">
+        <div class="k_chip">{out.bias} — {out.direction}</div>
+        <div class="k_chip">{mkt}</div>
+        <div class="k_chip">REGIME: {out.regime}</div>
+        <div class="k_chip">SCORE: {out.score}/100</div>
+        <div class="k_chip {heat_cls}">{heat_text}</div>
+      </div>
 
-  <div class="k_small" style="margin-top:10px;">
-    {out.why}
-  </div>
+      <div class="k_small"><b>EXPECTED MOVE (FROM HERE)</b></div>
+      <div class="k_small" style="margin-top:6px;">
+        <span style="color:#34ff9a;"><b>LIKELY {fmt_price(out.likely)}</b></span>
+        &nbsp; | &nbsp;
+        <span style="color:rgba(255,255,255,.92);"><b>POSS {fmt_price(out.poss)}</b></span>
+        &nbsp; | &nbsp;
+        <span style="color:#34ff9a;"><b>STRETCH {fmt_price(out.stretch)}</b></span>
+      </div>
 
-  <div class="kpi-row">
-    <div class="kpi">
-      <div class="label">BIAS</div>
-      <div class="value">{out.bias}</div>
-      <div class="delta">Direction: {out.direction}</div>
+      <div class="k_small" style="margin-top:10px;">
+        Invalid: <b>{fmt_price(out.invalid)}</b> • Last update: <b>{out.last_time}</b>
+      </div>
+
+      <div class="k_small" style="margin-top:10px;">
+        {out.why}
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi">
+          <div class="label">BIAS</div>
+          <div class="value">{out.bias}</div>
+          <div class="delta">Direction: {out.direction}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">VWAP (5m)</div>
+          <div class="value">{fmt_price(out.vwap_5m)}</div>
+          <div class="delta">Anchor level for reclaim/reject</div>
+        </div>
+        <div class="kpi">
+          <div class="label">ATR (5m)</div>
+          <div class="value">{fmt_price(out.atr_5m)}</div>
+          <div class="delta">Used for “Expected Move”</div>
+        </div>
+        <div class="kpi">
+          <div class="label">CHOP</div>
+          <div class="value">{("—" if np.isnan(out.chop) else f"{out.chop:.0f}/100")}</div>
+          <div class="delta">Higher = chop/range</div>
+        </div>
+      </div>
     </div>
-    <div class="kpi">
-      <div class="label">VWAP (5m)</div>
-      <div class="value">{fmt_price(out.vwap_5m)}</div>
-      <div class="delta">Anchor level for reclaim/reject</div>
+
+    <!-- RIGHT: Momentum / Pressure Gauge -->
+    <div class="gauge">
+      <div class="gauge-title">MOMENTUM / PRESSURE</div>
+      <div class="gauge-wrap">
+        <div class="gauge-fill" style="height:{fill_pct}%; background:{g_color};"></div>
+      </div>
+      <div class="gauge-score">{out.score}</div>
+      <div class="gauge-sub">Score / 100</div>
+      <div class="gauge-arrow" style="color:{arrow_col};">{arrow_char} {out.direction}</div>
+      <div class="gauge-sub" style="margin-top:6px;">Heat: {heat_text.replace("SESSION HEAT:", "").strip()}</div>
     </div>
-    <div class="kpi">
-      <div class="label">ATR (5m)</div>
-      <div class="value">{fmt_price(out.atr_5m)}</div>
-      <div class="delta">Used for “Expected Move”</div>
-    </div>
-    <div class="kpi">
-      <div class="label">CHOP</div>
-      <div class="value">{("—" if np.isnan(out.chop) else f"{out.chop:.0f}/100")}</div>
-      <div class="delta">Higher = chop/range</div>
-    </div>
+
   </div>
 </div>
 """,
@@ -880,7 +998,6 @@ st.markdown(
 )
 
 st.caption("Decision-support only. Not financial advice. Trade your plan.")
-
 
 # =========================
 # Optional mini chart (kept light)
@@ -891,6 +1008,7 @@ with st.expander("Show chart (Close / EMA9 / VWAP)", expanded=False):
         d1["EMA9"] = ema(d1["Close"], 9)
         d1["VWAP"] = vwap_intraday(d1)
         d1 = d1.tail(240)
+
         chart_df = d1.set_index("Datetime")[["Close", "EMA9", "VWAP"]]
         st.line_chart(chart_df)
     elif df_5m is not None and not df_5m.empty:
