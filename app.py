@@ -4,7 +4,7 @@ from agent import generate_signal, get_data, add_indicators
 st.set_page_config(page_title="Lockout Signals", layout="wide")
 
 st.title("Lockout Signals • SPY / QQQ")
-st.caption("Safe-mode build to get the app running first.")
+st.caption("Safe mode is live. Core board first, battle map next.")
 
 tickers = ["SPY", "QQQ"]
 
@@ -36,4 +36,4 @@ for ticker in tickers:
             st.line_chart(df[cols])
 
 st.divider()
-st.write("Framework is live. Next step: rebuild the battle-map version cleanly.")
+st.write("When this is stable, next upgrade is the SPY battle map: favored side, chop zone, stall warning, invalidation, and exit flag.")
