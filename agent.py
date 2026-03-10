@@ -12,31 +12,58 @@ def flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_data(ticker, interval="5m", period="5d"):
-    try:
-        df = yf.download(
-            ticker,
-            interval=interval,
-            period=period,
-            progress=False,
-            auto_adjust=False,
-            threads=False,
-            prepost=True,
-        )
-        df = flatten_columns(df)
+    """
+    Fetch market data with fallbacks.
+    Only require the columns we actually use.
+    """
+    attempts = [
+        {"interval": interval, "period": period},
+        {"interval": "5m", "period": "1d"},
+        {"interval": "15m", "period": "5d"},
+        {"interval": "1d", "period": "1mo"},
+    ]
 
-        if df.empty:
-            return pd.DataFrame()
+    for attempt in attempts:
+        try:
+            df = yf.download(
+                ticker,
+                interval=attempt["interval"],
+                period=attempt["period"],
+                progress=False,
+                auto_adjust=False,
+                threads=False,
+                prepost=True,
+            )
 
-        required = ["Open", "High", "Low", "Close", "Volume"]
-        for col in required:
-            if col not in df.columns:
-                return pd.DataFrame()
+            df = flatten_columns(df)
 
-        return df.dropna().copy()
+            if df.empty:
+                continue
 
-    except Exception as e:
-        print(f"get_data error for {ticker}: {e}")
-        return pd.DataFrame()
+            required = ["Open", "High", "Low", "Close", "Volume"]
+            missing = [col for col in required if col not in df.columns]
+            if missing:
+                print(f"{ticker}: missing required columns {missing}")
+                continue
+
+            # Only drop rows missing the columns we actually need
+            df = df.dropna(subset=required).copy()
+
+            if df.empty:
+                print(f"{ticker}: data became empty after subset dropna")
+                continue
+
+            df = df.sort_index()
+            print(
+                f"{ticker}: loaded {len(df)} rows using interval={attempt['interval']} period={attempt['period']}"
+            )
+            return df
+
+        except Exception as e:
+            print(f"get_data error for {ticker} with {attempt}: {e}")
+
+    print(f"All data attempts failed for {ticker}")
+    return pd.DataFrame()
 
 
 def add_indicators(df):
@@ -60,24 +87,6 @@ def add_indicators(df):
     df["VWAP"] = cum_tpv / cum_vol
 
     return df
-
-
-def get_last_price(ticker):
-    try:
-        df = yf.download(
-            ticker,
-            interval="1m",
-            period="1d",
-            progress=False,
-            auto_adjust=False,
-            threads=False,
-        )
-        df = flatten_columns(df)
-        if not df.empty and "Close" in df.columns:
-            return float(df["Close"].iloc[-1])
-    except Exception as e:
-        print(f"get_last_price error for {ticker}: {e}")
-    return None
 
 
 def generate_signal(ticker="SPY"):
