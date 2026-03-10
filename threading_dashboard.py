@@ -1,1045 +1,201 @@
-# app.py — Lockout Signals • Command Center
-# Single-file Streamlit app. Copy/paste whole file.
-
-import math
-import datetime as dt
-from dataclasses import dataclass
-
-import numpy as np
-import pandas as pd
-import streamlit as st
-
-# Optional auto-refresh support
-_AUTORF_AVAILABLE = True
-try:
-    from streamlit_autorefresh import st_autorefresh
-except Exception:
-    _AUTORF_AVAILABLE = False
-
 import yfinance as yf
+import pandas as pd
+import numpy as np
+import talib
+from datetime import datetime
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 
-# Python 3.9+ timezone
-try:
-    from zoneinfo import ZoneInfo
-except Exception:
-    ZoneInfo = None
+# -------------------------------
+# Helper Functions
+# -------------------------------
 
-
-# =========================
-# Page / Theme
-# =========================
-st.set_page_config(
-    page_title="Lockout Signals • Command Center",
-    page_icon="🧠",
-    layout="wide",
-)
-
-st.markdown(
-    """
-<style>
-/* ===== Global Dark ===== */
-html, body, [data-testid="stAppViewContainer"] {
-  background: #0b0f14 !important;
-  color: rgba(255,255,255,.92) !important;
-}
-[data-testid="stHeader"] { background: rgba(0,0,0,0) !important; }
-[data-testid="stSidebar"] { background: #0a0e13 !important; }
-
-/* Hide Streamlit default menu/footer clutter a bit */
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-
-/* ===== Responsive typography ===== */
-:root{
-  --price-size: clamp(52px, 10vw, 110px);
-  --action-size: clamp(26px, 6vw, 56px);
-  --subhead-size: clamp(16px, 3.6vw, 26px);
-  --chip-size: clamp(12px, 2.6vw, 16px);
-  --small-size: clamp(12px, 2.6vw, 14px);
-  --border-pop: rgba(255,255,255,.24);
-  --border-soft: rgba(255,255,255,.14);
-}
-
-/* ===== Command Card ===== */
-.cc-card{
-  border-radius: 18px;
-  border: 1px solid var(--border-pop);
-  background: radial-gradient(1200px 400px at 50% 0%, rgba(255,255,255,.07), rgba(255,255,255,.02));
-  padding: 22px 18px;
-  box-shadow: 0 14px 44px rgba(0,0,0,.45);
-}
-
-/* ===== Mission Header (status bar) ===== */
-.mission{
-  border-radius: 14px;
-  border: 1px solid var(--border-pop);
-  background: rgba(255,255,255,.03);
-  padding: 10px 12px;
-  box-shadow: 0 10px 30px rgba(0,0,0,.30);
-  margin-bottom: 10px;
-}
-
-/* ===== Typography ===== */
-.k_subhead{
-  font-size: var(--subhead-size);
-  text-align: center;
-  letter-spacing: .8px;
-  opacity: .88;
-  margin-bottom: 8px;
-}
-.k_price{
-  font-size: var(--price-size);
-  line-height: 1.0;
-  text-align: center;
-  font-weight: 900;
-  margin: 6px 0 6px 0;
-}
-.k_action{
-  font-size: var(--action-size);
-  line-height: 1.05;
-  text-align: center;
-  font-weight: 900;
-  letter-spacing: 1.2px;
-  margin: 4px 0 10px 0;
-}
-.k_small{
-  font-size: var(--small-size);
-  opacity: .84;
-  text-align: center;
-}
-
-/* ===== Chips (pill buttons) ===== */
-.k_chips{
-  display:flex; gap:10px; flex-wrap:wrap;
-  justify-content:center; align-items:center;
-  margin-top: 10px; margin-bottom: 14px;
-}
-.k_chip{
-  font-size: var(--chip-size);
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--border-pop);
-  background: rgba(255,255,255,.04);
-  white-space: nowrap;
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,.2);
-}
-
-/* High-contrast category chips (color-vision friendly: border + icon + text) */
-.chip-bull { background: rgba(52,255,154,.08); border-color: rgba(52,255,154,.45); }
-.chip-bear { background: rgba(255,91,110,.09); border-color: rgba(255,91,110,.50); }
-.chip-neut { background: rgba(88,215,255,.08); border-color: rgba(88,215,255,.48); }
-.chip-warn { background: rgba(255,204,102,.10); border-color: rgba(255,204,102,.55); }
-.chip-mode { background: rgba(160,120,255,.10); border-color: rgba(160,120,255,.55); }
-.chip-score{ background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.30); }
-.chip-heat { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.30); }
-
-/* ===== Marquee (command feed) ===== */
-.marquee-wrap{
-  width: 100%;
-  overflow: hidden;
-  border-radius: 12px;
-  border: 1px solid var(--border-pop);
-  background: linear-gradient(90deg, rgba(0,90,180,.78), rgba(0,60,140,.78)); /* NASDAQ-ish blue */
-  padding: 10px 0;
-  margin: 10px 0 18px 0;
-  box-shadow: 0 10px 30px rgba(0,0,0,.35);
-}
-.marquee{
-  display: inline-block;
-  white-space: nowrap;
-  animation: scroll-left 18s linear infinite;
-  font-size: clamp(12px, 2.4vw, 14px);
-  letter-spacing: .6px;
-  padding-left: 100%;
-  font-weight: 800;
-  text-shadow: 0 2px 10px rgba(0,0,0,.35);
-}
-@keyframes scroll-left{
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-100%); }
-}
-.marq-good { color: #34ff9a; }
-.marq-warn { color: #ffcc66; }
-.marq-bad  { color: #ff5b6e; }
-.marq-neutral { color: rgba(255,255,255,.92); }
-
-/* ===== KPI row ===== */
-.kpi-row{
-  display:flex; gap:14px; flex-wrap:wrap;
-  justify-content:space-between;
-  margin-top: 14px;
-}
-.kpi{
-  flex: 1 1 160px;
-  border-radius: 14px;
-  border: 1px solid var(--border-pop);
-  background: rgba(255,255,255,.03);
-  padding: 12px 12px;
-  box-shadow: 0 10px 26px rgba(0,0,0,.25);
-}
-.kpi .label{
-  font-size: 12px;
-  opacity: .80;
-  letter-spacing: .8px;
-}
-.kpi .value{
-  font-size: 22px;
-  font-weight: 900;
-  margin-top: 6px;
-}
-.kpi .delta{
-  font-size: 12px;
-  opacity: .78;
-  margin-top: 2px;
-}
-
-/* ===== Action FX ===== */
-.fx-glow{
-  text-shadow: 0 0 18px rgba(52,255,154,.40), 0 0 32px rgba(52,255,154,.25);
-}
-@keyframes pulse {
-  0% { transform: scale(1); filter: brightness(1); }
-  50% { transform: scale(1.02); filter: brightness(1.15); }
-  100% { transform: scale(1); filter: brightness(1); }
-}
-.fx-pulse{ animation: pulse 1.15s ease-in-out infinite; }
-
-@keyframes shake {
-  0% { transform: translateX(0); }
-  20% { transform: translateX(-2px); }
-  40% { transform: translateX(2px); }
-  60% { transform: translateX(-2px); }
-  80% { transform: translateX(2px); }
-  100% { transform: translateX(0); }
-}
-.fx-shake{ animation: shake 0.65s ease-in-out infinite; }
-
-/* ===== Gauge Panel ===== */
-.gauge-card{
-  border-radius: 18px;
-  border: 1px solid var(--border-pop);
-  background: radial-gradient(900px 340px at 50% 0%, rgba(255,255,255,.06), rgba(255,255,255,.02));
-  padding: 18px 16px;
-  box-shadow: 0 14px 44px rgba(0,0,0,.40);
-}
-.gauge-title{
-  font-size: 13px;
-  opacity: .86;
-  letter-spacing: 1.0px;
-  font-weight: 900;
-  margin-bottom: 10px;
-  text-align:center;
-}
-.gauge-wrap{
-  position: relative;
-  width: 100%;
-  height: 240px;
-  border-radius: 16px;
-  border: 1px solid var(--border-pop);
-  background: rgba(255,255,255,.03);
-  overflow: hidden;
-}
-.gauge-fill{
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  border-top: 1px solid rgba(255,255,255,.25);
-  background: rgba(88,215,255,.25);
-  box-shadow: 0 -18px 40px rgba(88,215,255,.12);
-}
-.gauge-score{
-  margin-top: 12px;
-  text-align:center;
-  font-size: 40px;
-  font-weight: 950;
-}
-.gauge-sub{
-  text-align:center;
-  font-size: 12px;
-  opacity: .82;
-  margin-top: 2px;
-}
-.gauge-arrow{
-  text-align:center;
-  font-size: 15px;
-  font-weight: 900;
-  margin-top: 8px;
-}
-
-/* ===== Mobile padding ===== */
-@media (max-width: 600px){
-  .block-container { padding-top: 1.1rem !important; padding-left: .8rem !important; padding-right: .8rem !important; }
-  .gauge-wrap{ height: 190px; }
-}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-
-# =========================
-# Utilities
-# =========================
-def is_crypto_symbol(asset_key: str) -> bool:
-    return asset_key.startswith("CRYPTO:")
-
-
-def yf_symbol(asset_key: str) -> str:
-    if asset_key.startswith("CRYPTO:"):
-        return asset_key.split("CRYPTO:", 1)[1]  # e.g. BTC-USD
-    return asset_key
-
-
-def now_et() -> dt.datetime:
-    if ZoneInfo is None:
-        return dt.datetime.utcnow()
-    return dt.datetime.now(ZoneInfo("America/New_York"))
-
-
-def market_status(asset_key: str) -> str:
-    if is_crypto_symbol(asset_key):
-        return "24/7 OPEN"
-
-    t = now_et()
-    if t.weekday() >= 5:
-        return "CLOSED"
-
-    hhmm = t.hour * 60 + t.minute
-    pre = 4 * 60
-    open_ = 9 * 60 + 30
-    close_ = 16 * 60
-    after = 20 * 60
-
-    if pre <= hhmm < open_:
-        return "PRE-MARKET"
-    if open_ <= hhmm < close_:
-        return "MARKET OPEN"
-    if close_ <= hhmm < after:
-        return "AFTER HOURS"
-    return "CLOSED"
-
-
-def ema(series: pd.Series, span: int) -> pd.Series:
-    return series.ewm(span=span, adjust=False).mean()
-
-
-def true_range(df: pd.DataFrame) -> pd.Series:
-    h = df["High"]
-    l = df["Low"]
-    c = df["Close"]
-    prev_c = c.shift(1)
-    tr = pd.concat([(h - l), (h - prev_c).abs(), (l - prev_c).abs()], axis=1).max(axis=1)
-    return tr
-
-
-def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
-    tr = true_range(df)
-    return tr.ewm(span=n, adjust=False).mean()
-
-
-def choppiness(df: pd.DataFrame, n: int = 14) -> pd.Series:
-    tr_sum = true_range(df).rolling(n).sum()
-    hi = df["High"].rolling(n).max()
-    lo = df["Low"].rolling(n).min()
-    rng = (hi - lo).replace(0, np.nan)
-    chop = 100 * np.log10(tr_sum / rng) / np.log10(n)
-    return chop
-
-
-def vwap_intraday(df: pd.DataFrame) -> pd.Series:
-    tp = (df["High"] + df["Low"] + df["Close"]) / 3.0
-    vol = df["Volume"].copy()
-    vol = vol.replace(0, np.nan).fillna(1.0)
-    cum = (tp * vol).cumsum()
-    cumv = vol.cumsum()
-    return cum / cumv
-
-
-def fmt_price(x: float, decimals: int = 2) -> str:
-    if np.isnan(x):
-        return "—"
-    return f"{x:,.{decimals}f}"
-
-
-def action_fx_class(action: str) -> str:
-    a = action.upper()
-    if "ENTRY ACTIVE" in a:
-        return "fx-glow"
-    if "EXIT" in a or "RESET" in a:
-        return "fx-pulse fx-shake"
-    return ""
-
-
-def arrow_for_direction(direction: str) -> str:
-    d = (direction or "").upper()
-    if "CALL" in d or "BULL" in d:
-        return "▲"
-    if "PUT" in d or "BEAR" in d:
-        return "▼"
-    return "➜"
-
-
-def chip_class_for_bias(bias: str) -> str:
-    b = (bias or "").upper()
-    if "BULL" in b:
-        return "chip-bull"
-    if "BEAR" in b:
-        return "chip-bear"
-    if "NEUT" in b:
-        return "chip-neut"
-    return "chip-score"
-
-
-def chip_class_for_regime(regime: str) -> str:
-    r = (regime or "").upper()
-    if "TREND" in r:
-        return "chip-bull"
-    if "RANGE" in r:
-        return "chip-warn"
-    return "chip-neut"
-
-
-def chip_class_for_status(status: str) -> str:
-    s = (status or "").upper()
-    if "OPEN" in s:
-        return "chip-bull"
-    if "PRE" in s or "AFTER" in s:
-        return "chip-warn"
-    return "chip-bear"
-
-
-def session_heat(score: int, regime: str, bias: str) -> str:
-    r = (regime or "").upper()
-    b = (bias or "").upper()
-    if score >= 70 and ("TREND" in r) and ("NEUT" not in b):
-        return "HOT"
-    if score >= 55:
-        return "WARM"
-    if score >= 35:
-        return "NEUTRAL"
-    return "COLD"
-
-
-def heat_chip_class(heat: str) -> str:
-    h = (heat or "").upper()
-    if h == "HOT":
-        return "chip-bull"
-    if h == "WARM":
-        return "chip-warn"
-    if h == "COLD":
-        return "chip-bear"
-    return "chip-neut"
-
-
-def tone_class(bias: str, action: str) -> str:
-    a = (action or "").upper()
-    if "EXIT" in a or "RESET" in a:
-        return "bad"
-    if "CAUTION" in a:
-        return "warn"
-    if "ENTRY" in a or "ACTIVE" in a:
-        return "good"
-    b = (bias or "").upper()
-    if "BULL" in b:
-        return "good"
-    if "BEAR" in b:
-        return "bad"
-    return "neutral"
-
-
-def command_feed(text: str, cls: str):
-    st.markdown(
-        f"""
-<div class="marquee-wrap">
-  <div class="marquee marq-{cls}">
-    {text} &nbsp; • &nbsp; {text} &nbsp; • &nbsp; {text}
-  </div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
-
-
-# =========================
-# Data Fetching
-# =========================
-@st.cache_data(ttl=12)
-def fetch_intraday(symbol: str, interval: str, period: str) -> pd.DataFrame:
-    t = yf.Ticker(symbol)
-    df = t.history(interval=interval, period=period)
-    if df is None or df.empty:
+def get_data(ticker, interval='5m', period='5d'):
+    try:
+        df = yf.download(ticker, interval=interval, period=period, prepost=True, progress=False)
+        if df.empty:
+            return pd.DataFrame()
+        return df
+    except Exception:
         return pd.DataFrame()
-    df = df.rename_axis("Datetime").reset_index()
 
-    for col in ["Open", "High", "Low", "Close", "Volume"]:
-        if col not in df.columns:
-            df[col] = np.nan
+def calculate_chop(df, period=14):
+    if len(df) < period:
+        return np.nan
+    high_low = df['High'] - df['Low']
+    high_close = np.abs(df['High'] - df['Close'].shift())
+    low_close = np.abs(df['Low'] - df['Close'].shift())
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    atr_sum = tr.rolling(period).sum()
+    range_high_low = (df['High'].rolling(period).max() - df['Low'].rolling(period).min())
+    chop = 100 * np.log10(atr_sum / period / range_high_low) / np.log10(period)
+    return chop.iloc[-1] if not chop.empty else np.nan
 
-    df = df.dropna(subset=["Close"])
+def calculate_bb_squeeze(df, period=20):
+    if len(df) < period:
+        return False, np.nan
+    upper, middle, lower = talib.BBANDS(df['Close'], timeperiod=period, nbdevup=2, nbdevdn=2)
+    bb_width = (upper - lower) / middle
+    squeeze = bb_width < bb_width.rolling(50).min() * 1.05
+    return squeeze.iloc[-1], bb_width.iloc[-1]
+
+def detect_divergence(df, col='RSI', lookback=20):
+    if len(df) < lookback:
+        return False
+    prices = df['Close'].iloc[-lookback:]
+    ind = df[col].iloc[-lookback:]
+    price_ll_idx = prices.argmin()
+    ind_ll_idx = ind.argmin()
+    if price_ll_idx > ind_ll_idx and ind.iloc[-1] > ind.iloc[ind_ll_idx]:
+        return True
+    return False
+
+def get_vix_futures():
+    try:
+        vix_df = get_data('^VIX', '1m', '1d')
+        vix = vix_df['Close'].iloc[-1] if not vix_df.empty else 20.0
+    except:
+        vix = 20.0
+    es = yf.Ticker('ES=F').info.get('regularMarketPrice', 'N/A')
+    nq = yf.Ticker('NQ=F').info.get('regularMarketPrice', 'N/A')
+    return vix, es, nq
+
+# -------------------------------
+# Indicators & Scoring
+# -------------------------------
+
+def add_indicators(df):
+    if df.empty:
+        return df
+    df = df.copy()
+    df['EMA9'] = talib.EMA(df['Close'], timeperiod=9)
+    df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
+    df['ATR'] = talib.ATR(df['High'], df['Low'], df['Close'], timeperiod=14)
+    df['RSI'] = talib.RSI(df['Close'], timeperiod=14)
+    df['MACD'], df['MACD_sig'], _ = talib.MACD(df['Close'])
+    df['ADX'] = talib.ADX(df['High'], df['Low'], df['Close'], timeperiod=14)
+    df['OBV'] = talib.OBV(df['Close'], df['Volume'])
+    df['Stoch_K'], df['Stoch_D'] = talib.STOCH(df['High'], df['Low'], df['Close'])
+    df['CHOP'] = pd.Series([calculate_chop(df.iloc[:i+1]) for i in range(len(df))])
     return df
 
-
-def get_last_price(df_1m: pd.DataFrame, df_5m: pd.DataFrame):
-    if df_1m is not None and not df_1m.empty:
-        return float(df_1m["Close"].iloc[-1]), df_1m["Datetime"].iloc[-1]
-    if df_5m is not None and not df_5m.empty:
-        return float(df_5m["Close"].iloc[-1]), df_5m["Datetime"].iloc[-1]
-    return np.nan, pd.NaT
-
-
-# =========================
-# Signal Engine (KEEPING YOUR LOGIC)
-# =========================
-@dataclass
-class EngineOut:
-    price: float
-    last_time: str
-    bias: str
-    direction: str
-    regime: str
-    action: str
-    score: int
-    vwap_5m: float
-    atr_5m: float
-    chop: float
-    likely: float
-    poss: float
-    stretch: float
-    invalid: float
-    why: str
-
-
-def compute_engine(df_1m: pd.DataFrame, df_5m: pd.DataFrame, mode: str) -> EngineOut:
-    price = np.nan
-    last_time = "—"
-    if df_5m is None:
-        df_5m = pd.DataFrame()
-    if df_1m is None:
-        df_1m = pd.DataFrame()
-
-    price, tstamp = get_last_price(df_1m, df_5m)
-    if pd.notna(tstamp):
-        last_time = str(tstamp)
-
-    if df_5m.empty or len(df_5m) < 20:
-        return EngineOut(
-            price=price,
-            last_time=last_time,
-            bias="NEUTRAL",
-            direction="WAIT",
-            regime="RANGE",
-            action="WAIT — NO EDGE",
-            score=0,
-            vwap_5m=np.nan,
-            atr_5m=np.nan,
-            chop=np.nan,
-            likely=np.nan,
-            poss=np.nan,
-            stretch=np.nan,
-            invalid=np.nan,
-            why="Not enough 5m session data yet — let more candles print.",
-        )
-
-    d5 = df_5m.copy()
-    d5["EMA9"] = ema(d5["Close"], 9)
-    d5["EMA21"] = ema(d5["Close"], 21)
-    d5["VWAP"] = vwap_intraday(d5)
-    d5["ATR"] = atr(d5, 14)
-    d5["CHOP"] = choppiness(d5, 14)
-
-    vwap5 = float(d5["VWAP"].iloc[-1])
-    atr5 = float(d5["ATR"].iloc[-1])
-    chop5 = float(d5["CHOP"].iloc[-1])
-
-    if np.isnan(chop5):
-        regime = "MIXED"
-    elif chop5 >= 60:
-        regime = "RANGE"
-    elif chop5 <= 45:
-        regime = "TREND"
-    else:
-        regime = "MIXED"
-
-    ema9_now = float(d5["EMA9"].iloc[-1])
-    ema21_now = float(d5["EMA21"].iloc[-1])
-    ema9_prev = float(d5["EMA9"].iloc[-4]) if len(d5) >= 4 else ema9_now
-    slope9 = ema9_now - ema9_prev
-
-    bull_stack = (ema9_now > ema21_now) and (price > vwap5)
-    bear_stack = (ema9_now < ema21_now) and (price < vwap5)
-
-    if bull_stack and slope9 > 0:
-        bias = "BULLISH"
-        direction = "CALLS"
-    elif bear_stack and slope9 < 0:
-        bias = "BEARISH"
-        direction = "PUTS"
-    else:
-        bias = "NEUTRAL"
-        direction = "WAIT"
-
-    trigger_ok = False
-    heads_up = False
-    if not df_1m.empty and len(df_1m) >= 30:
-        d1 = df_1m.copy()
-        d1["EMA9"] = ema(d1["Close"], 9)
-        d1["VWAP"] = vwap_intraday(d1)
-
-        c = float(d1["Close"].iloc[-1])
-        c1 = float(d1["Close"].iloc[-2])
-        ema9_1 = float(d1["EMA9"].iloc[-1])
-        vwap1 = float(d1["VWAP"].iloc[-1])
-
-        if direction == "CALLS":
-            heads_up = (c > ema9_1 and c1 <= ema9_1) or (c > vwap1 and c1 <= vwap1)
-            trigger_ok = (c > ema9_1 and c > vwap1)
-        elif direction == "PUTS":
-            heads_up = (c < ema9_1 and c1 >= ema9_1) or (c < vwap1 and c1 >= vwap1)
-            trigger_ok = (c < ema9_1 and c < vwap1)
-        else:
-            heads_up = abs(c - vwap1) <= max(atr5 * 0.25, 0.05)
-
+def pressure_score(df):
+    if df.empty:
+        return 0, "COLD"
+    latest = df.iloc[-1]
     score = 0
-    if bias in ("BULLISH", "BEARISH"):
-        score += 32
-    else:
-        score += 12
+    if latest['RSI'] > 60: score += 20
+    if latest['MACD'] > latest['MACD_sig']: score += 20
+    if latest['Close'] > latest['EMA9'] > latest['VWAP']: score += 25
+    if latest['ADX'] > 25: score += 15
+    if latest.get('CHOP', 100) < 40: score += 10
+    if df['OBV'].diff().iloc[-1] > 0: score += 10
+    score = min(score, 100)
+    heat = "HOT" if score >= 75 else "WARM" if score >= 45 else "COLD"
+    return score, heat
 
-    if direction != "WAIT":
-        if (direction == "CALLS" and price > ema9_now) or (direction == "PUTS" and price < ema9_now):
-            score += 18
-        if (direction == "CALLS" and slope9 > 0) or (direction == "PUTS" and slope9 < 0):
-            score += 12
+# -------------------------------
+# Simple ML Predictor (trained once on load)
+# -------------------------------
 
-    if trigger_ok:
-        score += 22
-    elif heads_up:
-        score += 10
+ml_model = None
+ml_features = ['RSI', 'MACD', 'ADX', 'ATR', 'Close', 'Volume']
 
-    if not np.isnan(chop5):
-        if chop5 >= 65:
-            score -= 22
-        elif chop5 >= 58:
-            score -= 14
-        elif chop5 >= 52:
-            score -= 8
+def train_simple_ml():
+    global ml_model
+    try:
+        df = get_data('SPY', '5m', '730d')  # ~2 years
+        if df.empty:
+            return
+        df = add_indicators(df)
+        df['Future_Return'] = df['Close'].shift(-6) / df['Close'] - 1  # next ~30 min
+        df['Target'] = np.where(df['Future_Return'] > 0.002, 1, 0)  # up >0.2%
+        df = df.dropna()
 
-    score = int(max(0, min(100, score)))
+        X = df[ml_features]
+        y = df['Target']
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+        model = RandomForestClassifier(n_estimators=100, random_state=42)
+        model.fit(X_train, y_train)
+        acc = accuracy_score(y_test, model.predict(X_test))
+        print(f"ML Backtest Accuracy: {acc:.2%}")
+        ml_model = model
+    except Exception as e:
+        print(f"ML training failed: {e}")
+        ml_model = None
 
-    if mode == "FULL SEND":
-        entry_th = 45
-        caution_th = 32
-    else:
-        entry_th = 55
-        caution_th = 40
+def predict_ml(df):
+    if ml_model is None or df.empty:
+        return 50.0
+    latest = df[ml_features].iloc[-1:].fillna(0)
+    prob = ml_model.predict_proba(latest)[0][1] * 100  # prob of up move
+    return round(prob, 1)
 
-    if direction == "CALLS":
-        invalid = min(vwap5, ema21_now) - max(atr5 * 0.25, 0.05)
-    elif direction == "PUTS":
-        invalid = max(vwap5, ema21_now) + max(atr5 * 0.25, 0.05)
-    else:
-        invalid = vwap5
+# -------------------------------
+# Main Signal Generator
+# -------------------------------
 
-    if np.isnan(atr5) or atr5 <= 0:
-        atr5 = max(abs(price) * 0.001, 0.25)
+def generate_signal(ticker='SPY'):
+    df_5m = get_data(ticker, '5m', '5d')
+    if df_5m.empty:
+        return {"error": "No data"}
 
-    if mode == "FULL SEND":
-        m1, m2, m3 = 1.20, 2.00, 3.00
-    else:
-        m1, m2, m3 = 1.00, 1.70, 2.60
+    df_5m = add_indicators(df_5m)
+    latest = df_5m.iloc[-1]
 
-    if direction == "CALLS":
-        likely = price + atr5 * m1
-        poss = price + atr5 * m2
-        stretch = price + atr5 * m3
-    elif direction == "PUTS":
-        likely = price - atr5 * m1
-        poss = price - atr5 * m2
-        stretch = price - atr5 * m3
-    else:
-        likely = price - atr5 * 0.9
-        poss = price + atr5 * 0.9
-        stretch = price + atr5 * 1.6
+    vix, es, nq = get_vix_futures()
+    if vix > 22:
+        return {"signal": "High VIX – Choppy / Avoid", "bias": "NEUTRAL"}
 
-    why = ""
-    if direction == "WAIT":
-        if heads_up:
-            action = "HEADS UP"
-            why = "Neutral bias, but price is near key levels — watch for reclaim/reject."
-        else:
-            action = "WAIT — NO EDGE"
-            why = "No clean alignment yet."
-    else:
-        if (direction == "CALLS" and price < invalid) or (direction == "PUTS" and price > invalid):
-            action = "EXIT / RESET"
-            why = "Invalidation breached. Step away until alignment returns."
-        else:
-            if score >= entry_th and trigger_ok:
-                action = f"ENTRY ACTIVE — {direction}"
-                why = "Alignment + trigger confirmed. Trade the direction; manage risk."
-            elif score >= caution_th and (trigger_ok or heads_up):
-                action = f"CAUTION — {direction}"
-                why = "Direction favored, but edge is thinner. Small size / wait for cleaner reclaim."
-            elif heads_up:
-                action = "HEADS UP"
-                why = "Early conditions forming. Wait for confirmation."
-            else:
-                action = f"{direction} — WAIT"
-                why = "Direction bias exists but trigger not confirmed."
+    pressure, heat = pressure_score(df_5m)
+    squeeze, bbw = calculate_bb_squeeze(df_5m)
+    div_rsi = detect_divergence(df_5m, 'RSI')
+    div_macd = detect_divergence(df_5m, 'MACD')
+    vol_surge = df_5m['OBV'].diff().iloc[-1] > 0 if len(df_5m) > 1 else False
 
-    return EngineOut(
-        price=price,
-        last_time=last_time,
-        bias=bias,
-        direction=direction,
-        regime=regime,
-        action=action,
-        score=score,
-        vwap_5m=vwap5,
-        atr_5m=atr5,
-        chop=chop5,
-        likely=likely,
-        poss=poss,
-        stretch=stretch,
-        invalid=invalid,
-        why=why,
-    )
+    bias = "BULLISH" if latest['Close'] > latest['VWAP'] and latest['EMA9'] > latest['VWAP'] else \
+           "BEARISH" if latest['Close'] < latest['VWAP'] and latest['EMA9'] < latest['VWAP'] else "NEUTRAL"
 
+    regime = "TREND" if latest.get('CHOP', 100) < 45 and latest['ADX'] > 22 else "RANGE"
 
-# =========================
-# Universe / Assets
-# =========================
-ASSETS = {
-    "SPY": "SPY",
-    "QQQ": "QQQ",
-    "IWM": "IWM",
-    "BITO": "BITO",
-    "MSTR": "MSTR",
-    "MSTU": "MSTU",
-    "TSLA": "TSLA",
-    "NVDA": "NVDA",
-    "AMD": "AMD",
-    "PLTR": "PLTR",
-    "SOFI": "SOFI",
-    "GME": "GME",
-    "AMC": "AMC",
-    "RIOT": "RIOT",
-    "MARA": "MARA",
-    "CLSK": "CLSK",
-    "IREN": "IREN",
-    "NOK": "NOK",
-    "U": "U",
-    "ASTS": "ASTS",
-    "OPEN": "OPEN",
-    "HYMC": "HYMC",
-    "XOM": "XOM",
-    "OXY": "OXY",
-    "AAPL": "AAPL",
-    "MSFT": "MSFT",
-    "AMZN": "AMZN",
-    "META": "META",
-    "GOOGL": "GOOGL",
-    "NFLX": "NFLX",
-    "AVGO": "AVGO",
-    "INTC": "INTC",
-    "BAC": "BAC",
-    "NIO": "NIO",
-    "BTC": "CRYPTO:BTC-USD",
-    "ETH": "CRYPTO:ETH-USD",
-    "XRP": "CRYPTO:XRP-USD",
-    "XLM": "CRYPTO:XLM-USD",
-    "SOL": "CRYPTO:SOL-USD",
-    "DOGE": "CRYPTO:DOGE-USD",
-}
-UNIVERSE_KEYS = list(ASSETS.keys())
+    current = latest['Close']
+    atr = latest['ATR'] if not np.isnan(latest['ATR']) else 1.0
+    dir_mult = 1 if bias == "BULLISH" else -1 if bias == "BEARISH" else 0
 
+    likely   = current + dir_mult * atr * 1.0
+    possible = current + dir_mult * atr * 1.5
+    stretch  = current + dir_mult * atr * 2.5
+    invalid  = current - dir_mult * atr * 0.5
 
-# =========================
-# Sidebar Controls (optional)
-# =========================
-st.sidebar.markdown("## Controls (Optional)")
-st.sidebar.caption("Mobile users: use the top control bar on the main screen.")
+    why_list = []
+    if squeeze: why_list.append("Bollinger Squeeze → potential breakout")
+    if div_rsi or div_macd: why_list.append("Bullish divergence detected")
+    if vol_surge: why_list.append("Volume surge leading price")
+    if vix < 18: why_list.append("VIX low/falling → bullish fuel")
 
-show_movers = st.sidebar.toggle("Show Top Movers (Universe)", value=False)
-auto = st.sidebar.toggle("Auto-refresh", value=True)
-refresh_seconds = st.sidebar.selectbox("Refresh seconds", [10, 15, 20, 30, 45, 60], index=0)
-if auto and not _AUTORF_AVAILABLE:
-    st.sidebar.caption("Auto-refresh not available (missing streamlit-autorefresh).")
+    ml_prob = predict_ml(df_5m)
 
-if auto and _AUTORF_AVAILABLE:
-    st_autorefresh(interval=refresh_seconds * 1000, key="autorf")
+    signal_text = "No Clear Signal"
+    if pressure >= 75 and latest.get('CHOP', 100) < 45 and bias != "NEUTRAL" and len(why_list) >= 2:
+        direction = "CALLS" if bias == "BULLISH" else "PUTS"
+        signal_text = f"ENTRY ACTIVE — {direction} @ {current:.2f}"
 
-
-# =========================
-# MAIN HEADER
-# =========================
-st.title("Lockout Signals • Command Center")
-
-# =========================
-# Main-screen Control Bar (mobile-proof)
-# =========================
-with st.container():
-    c1, c2, c3, c4, c5 = st.columns([1.15, 1.05, 0.9, 0.9, 0.8], vertical_alignment="center")
-    with c1:
-        asset_label = st.selectbox("Asset", UNIVERSE_KEYS, index=UNIVERSE_KEYS.index("SPY"), label_visibility="collapsed")
-    with c2:
-        mode = st.radio("Mode", ["AGGRESSIVE", "FULL SEND"], index=0, horizontal=True, label_visibility="collapsed")
-    with c3:
-        refresh_now = st.button("🔁 Refresh", use_container_width=True)
-    with c4:
-        st.caption(f"Auto: {'ON' if auto else 'OFF'}")
-    with c5:
-        st.caption(f"{refresh_seconds}s")
-
-if refresh_now:
-    st.cache_data.clear()
-    st.rerun()
-
-
-asset_key = ASSETS[asset_label]
-symbol = yf_symbol(asset_key)
-
-# =========================
-# Fetch Data
-# =========================
-df_5m = fetch_intraday(symbol, interval="5m", period="1d")
-df_1m = fetch_intraday(symbol, interval="1m", period="1d")
-if df_1m.empty:
-    df_1m = fetch_intraday(symbol, interval="1m", period="5d")
-
-out = compute_engine(df_1m, df_5m, mode=mode)
-mkt = market_status(asset_key)
-heat = session_heat(out.score, out.regime, out.bias)
-arrow = arrow_for_direction(out.direction)
-fx = action_fx_class(out.action)
-tone = tone_class(out.bias, out.action)
-
-# =========================
-# Top Movers (optional)
-# =========================
-@st.cache_data(ttl=60)
-def movers_table(universe_keys: list[str]) -> pd.DataFrame:
-    rows = []
-    for k in universe_keys:
-        sym = yf_symbol(ASSETS[k])
-        try:
-            d = fetch_intraday(sym, interval="5m", period="1d")
-            if d.empty:
-                continue
-            first = float(d["Close"].iloc[0])
-            last = float(d["Close"].iloc[-1])
-            if first <= 0:
-                continue
-            pct = (last / first - 1.0) * 100.0
-            rows.append([k, pct, last])
-        except Exception:
-            continue
-    if not rows:
-        return pd.DataFrame(columns=["Ticker", "%", "Last"])
-    df = pd.DataFrame(rows, columns=["Ticker", "%", "Last"]).sort_values("%", ascending=False)
-    df["%"] = df["%"].map(lambda x: f"{x:+.2f}%")
-    df["Last"] = df["Last"].map(lambda x: f"{x:,.2f}")
-    return df
-
-if show_movers:
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Top Movers (Universe)")
-    movers = movers_table(UNIVERSE_KEYS)
-    col_up, col_dn = st.sidebar.columns(2)
-    with col_up:
-        st.caption("Top 10 Up")
-        st.dataframe(movers.head(10), use_container_width=True, hide_index=True)
-    with col_dn:
-        st.caption("Top 10 Down")
-        st.dataframe(movers.tail(10).sort_values("%", ascending=True), use_container_width=True, hide_index=True)
-
-
-# =========================
-# Mission Header (STATUS BAR)
-# =========================
-last_ts = out.last_time if out.last_time != "—" else "—"
-st.markdown(
-    f"""
-<div class="mission">
-  <div class="k_chips" style="margin:0;">
-    <div class="k_chip chip-score"><b>{asset_label}</b></div>
-    <div class="k_chip {chip_class_for_status(mkt)}">STATUS: <b>{mkt}</b></div>
-    <div class="k_chip chip-mode">MODE: <b>{mode}</b></div>
-    <div class="k_chip chip-score">LAST: <b>{last_ts}</b></div>
-  </div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
-
-# =========================
-# Command Feed (NASDAQ blue bg)
-# =========================
-feed = (
-    f"{arrow} ACTION: {out.action} • BIAS: {out.bias} — {out.direction} • "
-    f"STATUS: {mkt} • REGIME: {out.regime} • SCORE: {out.score}/100 • "
-    f"HEAT: {heat} • INVALID: {fmt_price(out.invalid)} • PRICE: {fmt_price(out.price)}"
-)
-command_feed(feed, tone)
-
-
-# =========================
-# Main Layout: LEFT (core) + RIGHT (gauge)
-# Desktop: side-by-side. Mobile: stacks (gauge under).
-# =========================
-left, right = st.columns([2.1, 1.0], gap="large")
-
-# -------- LEFT: Core Command Card --------
-with left:
-    subhead = f"{asset_label} • 5m Brain / 1m Trigger"
-
-    # Price color anchored to bias (not only “green/red” — still readable)
-    if "BULL" in (out.bias or ""):
-        price_color = "rgba(52,255,154,.92)"
-    elif "BEAR" in (out.bias or ""):
-        price_color = "rgba(255,91,110,.92)"
-    else:
-        price_color = "rgba(255,255,255,.90)"
-
-    # Chip classes
-    bias_cls = chip_class_for_bias(out.bias)
-    status_cls = chip_class_for_status(mkt)
-    regime_cls = chip_class_for_regime(out.regime)
-    heat_cls = heat_chip_class(heat)
-
-    # Slight wording tweak (optional): keep your language
-    why_text = out.why
-
-    st.markdown(
-        f"""
-<div class="cc-card">
-
-  <div class="k_subhead">{subhead}</div>
-
-  <div class="k_price" style="color:{price_color};">
-    <span style="opacity:.92; font-weight:950;">{arrow}</span> {fmt_price(out.price)}
-  </div>
-
-  <div class="k_action {fx}" style="color:{price_color};">
-    {out.action}
-  </div>
-
-  <div class="k_chips">
-    <div class="k_chip {bias_cls}">🎯 <b>{out.bias}</b> — <b>{out.direction}</b></div>
-    <div class="k_chip {status_cls}">🕒 <b>{mkt}</b></div>
-    <div class="k_chip {regime_cls}">📡 REGIME: <b>{out.regime}</b></div>
-    <div class="k_chip chip-score">🧮 SCORE: <b>{out.score}/100</b></div>
-    <div class="k_chip chip-mode">⚙️ MODE: <b>{mode}</b></div>
-    <div class="k_chip {heat_cls} chip-heat">🔥 SESSION HEAT: <b>{heat}</b></div>
-  </div>
-
-  <div class="k_small"><b>EXPECTED MOVE (FROM HERE)</b></div>
-  <div class="k_small" style="margin-top:6px;">
-    <span style="color:#34ff9a;"><b>LIKELY {fmt_price(out.likely)}</b></span>
-    &nbsp; | &nbsp;
-    <span style="color:rgba(255,255,255,.92);"><b>POSS {fmt_price(out.poss)}</b></span>
-    &nbsp; | &nbsp;
-    <span style="color:#34ff9a;"><b>STRETCH {fmt_price(out.stretch)}</b></span>
-  </div>
-
-  <div class="k_small" style="margin-top:10px;">
-    Invalid: <b>{fmt_price(out.invalid)}</b> • Last update: <b>{out.last_time}</b>
-  </div>
-
-  <div class="k_small" style="margin-top:10px;">
-    {why_text}
-  </div>
-
-  <div class="kpi-row">
-    <div class="kpi">
-      <div class="label">BIAS</div>
-      <div class="value">{out.bias}</div>
-      <div class="delta">Direction: {out.direction}</div>
-    </div>
-    <div class="kpi">
-      <div class="label">VWAP (5m)</div>
-      <div class="value">{fmt_price(out.vwap_5m)}</div>
-      <div class="delta">Anchor level for reclaim/reject</div>
-    </div>
-    <div class="kpi">
-      <div class="label">ATR (5m)</div>
-      <div class="value">{fmt_price(out.atr_5m)}</div>
-      <div class="delta">Used for “Expected Move”</div>
-    </div>
-    <div class="kpi">
-      <div class="label">CHOP</div>
-      <div class="value">{("—" if np.isnan(out.chop) else f"{out.chop:.0f}/100")}</div>
-      <div class="delta">Higher = chop/range</div>
-    </div>
-  </div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
-
-# -------- RIGHT: Momentum / Pressure Gauge --------
-with right:
-    # Gauge fill based on score (0-100)
-    pct = int(max(0, min(100, out.score)))
-    # Color “hint” via background tint; still readable even if you don’t see hues well
-    if pct >= 70:
-        fill_rgba = "rgba(52,255,154,.35)"
-        fill_shadow = "rgba(52,255,154,.14)"
-        arrow_txt = "▲ PRESSURE UP"
-    elif pct >= 45:
-        fill_rgba = "rgba(255,204,102,.35)"
-        fill_shadow = "rgba(255,204,102,.12)"
-        arrow_txt = "➜ BUILDING"
-    else:
-        fill_rgba = "rgba(255,91,110,.30)"
-        fill_shadow = "rgba(255,91,110,.12)"
-        arrow_txt = "▼ LOW PRESSURE"
-
-    # Direction hint overrides
-    if "CALL" in (out.direction or ""):
-        arrow_txt = "▲ BULL PRESSURE"
-    elif "PUT" in (out.direction or ""):
-        arrow_txt = "▼ BEAR PRESSURE"
-
-    st.markdown(
-        f"""
-<div class="gauge-card">
-  <div class="gauge-title">MOMENTUM / PRESSURE</div>
-
-  <div class="gauge-wrap">
-    <div class="gauge-fill" style="height:{pct}%; background:{fill_rgba}; box-shadow: 0 -18px 40px {fill_shadow};"></div>
-  </div>
-
-  <div class="gauge-score">{pct}</div>
-  <div class="gauge-sub">Score / 100</div>
-  <div class="gauge-arrow">{arrow_txt}</div>
-  <div class="gauge-sub" style="margin-top:6px;">Heat: <b>{heat}</b></div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
-
-st.caption("Decision-support only. Not financial advice. Trade your plan.")
-
-
-# =========================
-# Optional mini chart (kept light)
-# =========================
-with st.expander("Show chart (Close / EMA9 / VWAP)", expanded=False):
-    if df_1m is not None and not df_1m.empty and len(df_1m) >= 20:
-        d1 = df_1m.copy()
-        d1["EMA9"] = ema(d1["Close"], 9)
-        d1["VWAP"] = vwap_intraday(d1)
-        d1 = d1.tail(240)
-
-        chart_df = d1.set_index("Datetime")[["Close", "EMA9", "VWAP"]]
-        st.line_chart(chart_df)
-    elif df_5m is not None and not df_5m.empty:
-        d5 = df_5m.copy()
-        d5["EMA9"] = ema(d5["Close"], 9)
-        d5["VWAP"] = vwap_intraday(d5)
-        chart_df = d5.set_index("Datetime")[["Close", "EMA9", "VWAP"]].tail(200)
-        st.line_chart(chart_df)
-    else:
-        st.info("No chart data available yet.")
+    return {
+        'ticker': ticker,
+        'price': current,
+        'bias': bias,
+        'regime': regime,
+        'pressure': pressure,
+        'heat': heat,
+        'vix': vix,
+        'es': es,
+        'nq': nq,
+        'why': why_list,
+        'likely': likely,
+        'possible': possible,
+        'stretch': stretch,
+        'invalid': invalid,
+        'ml_prob_up': ml_prob,
+        'signal': signal_text
+    }
