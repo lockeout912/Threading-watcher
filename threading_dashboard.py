@@ -1,7 +1,7 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import talib
+import pandas_ta as ta  # <-- switched to pandas-ta
 from datetime import datetime
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
@@ -21,6 +21,7 @@ def get_data(ticker, interval='5m', period='5d'):
         return pd.DataFrame()
 
 def calculate_chop(df, period=14):
+    """Custom CHOP using pandas (no talib needed)"""
     if len(df) < period:
         return np.nan
     high_low = df['High'] - df['Low']
@@ -35,12 +36,12 @@ def calculate_chop(df, period=14):
 def calculate_bb_squeeze(df, period=20):
     if len(df) < period:
         return False, np.nan
-    upper, middle, lower = talib.BBANDS(df['Close'], timeperiod=period, nbdevup=2, nbdevdn=2)
-    bb_width = (upper - lower) / middle
+    bb = ta.bbands(df['Close'], length=period, std=2)
+    bb_width = (bb[f'BBU_{period}_2.0'] - bb[f'BBL_{period}_2.0']) / bb[f'BBM_{period}_2.0']
     squeeze = bb_width < bb_width.rolling(50).min() * 1.05
     return squeeze.iloc[-1], bb_width.iloc[-1]
 
-def detect_divergence(df, col='RSI', lookback=20):
+def detect_divergence(df, col='RSI_14', lookback=20):
     if len(df) < lookback:
         return False
     prices = df['Close'].iloc[-lookback:]
@@ -69,15 +70,22 @@ def add_indicators(df):
     if df.empty:
         return df
     df = df.copy()
-    df['EMA9'] = talib.EMA(df['Close'], timeperiod=9)
-    df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
-    df['ATR'] = talib.ATR(df['High'], df['Low'], df['Close'], timeperiod=14)
-    df['RSI'] = talib.RSI(df['Close'], timeperiod=14)
-    df['MACD'], df['MACD_sig'], _ = talib.MACD(df['Close'])
-    df['ADX'] = talib.ADX(df['High'], df['Low'], df['Close'], timeperiod=14)
-    df['OBV'] = talib.OBV(df['Close'], df['Volume'])
-    df['Stoch_K'], df['Stoch_D'] = talib.STOCH(df['High'], df['Low'], df['Close'])
+    
+    # pandas-ta indicators
+    df.ta.ema(length=9, append=True, col_names=('EMA9',))
+    df.ta.rsi(length=14, append=True, col_names=('RSI',))
+    macd = df.ta.macd()
+    df['MACD'] = macd['MACD_12_26_9']
+    df['MACD_sig'] = macd['MACDs_12_26_9']
+    df.ta.atr(length=14, append=True, col_names=('ATR',))
+    df.ta.adx(append=True)
+    df.ta.obv(append=True)
+    df.ta.stoch(append=True)
     df['CHOP'] = pd.Series([calculate_chop(df.iloc[:i+1]) for i in range(len(df))])
+    
+    # VWAP (manual, as pandas-ta doesn't have built-in)
+    df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
+    
     return df
 
 def pressure_score(df):
@@ -88,7 +96,7 @@ def pressure_score(df):
     if latest['RSI'] > 60: score += 20
     if latest['MACD'] > latest['MACD_sig']: score += 20
     if latest['Close'] > latest['EMA9'] > latest['VWAP']: score += 25
-    if latest['ADX'] > 25: score += 15
+    if latest.get('ADX_14', 0) > 25: score += 15
     if latest.get('CHOP', 100) < 40: score += 10
     if df['OBV'].diff().iloc[-1] > 0: score += 10
     score = min(score, 100)
@@ -96,24 +104,24 @@ def pressure_score(df):
     return score, heat
 
 # -------------------------------
-# Simple ML Predictor (trained once on load)
+# Simple ML Predictor
 # -------------------------------
 
 ml_model = None
-ml_features = ['RSI', 'MACD', 'ADX', 'ATR', 'Close', 'Volume']
+ml_features = ['RSI', 'MACD', 'ADX_14', 'ATR', 'Close', 'Volume']
 
 def train_simple_ml():
     global ml_model
     try:
-        df = get_data('SPY', '5m', '730d')  # ~2 years
+        df = get_data('SPY', '5m', '730d')
         if df.empty:
             return
         df = add_indicators(df)
-        df['Future_Return'] = df['Close'].shift(-6) / df['Close'] - 1  # next ~30 min
-        df['Target'] = np.where(df['Future_Return'] > 0.002, 1, 0)  # up >0.2%
+        df['Future_Return'] = df['Close'].shift(-6) / df['Close'] - 1
+        df['Target'] = np.where(df['Future_Return'] > 0.002, 1, 0)
         df = df.dropna()
 
-        X = df[ml_features]
+        X = df[ml_features].fillna(0)
         y = df['Target']
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
         model = RandomForestClassifier(n_estimators=100, random_state=42)
@@ -129,7 +137,7 @@ def predict_ml(df):
     if ml_model is None or df.empty:
         return 50.0
     latest = df[ml_features].iloc[-1:].fillna(0)
-    prob = ml_model.predict_proba(latest)[0][1] * 100  # prob of up move
+    prob = ml_model.predict_proba(latest)[0][1] * 100
     return round(prob, 1)
 
 # -------------------------------
@@ -151,16 +159,16 @@ def generate_signal(ticker='SPY'):
     pressure, heat = pressure_score(df_5m)
     squeeze, bbw = calculate_bb_squeeze(df_5m)
     div_rsi = detect_divergence(df_5m, 'RSI')
-    div_macd = detect_divergence(df_5m, 'MACD')
+    div_macd = detect_divergence(df_5m, 'MACD_12_26_9')
     vol_surge = df_5m['OBV'].diff().iloc[-1] > 0 if len(df_5m) > 1 else False
 
     bias = "BULLISH" if latest['Close'] > latest['VWAP'] and latest['EMA9'] > latest['VWAP'] else \
            "BEARISH" if latest['Close'] < latest['VWAP'] and latest['EMA9'] < latest['VWAP'] else "NEUTRAL"
 
-    regime = "TREND" if latest.get('CHOP', 100) < 45 and latest['ADX'] > 22 else "RANGE"
+    regime = "TREND" if latest.get('CHOP', 100) < 45 and latest.get('ADX_14', 0) > 22 else "RANGE"
 
     current = latest['Close']
-    atr = latest['ATR'] if not np.isnan(latest['ATR']) else 1.0
+    atr = latest['ATR'] if not np.isnan(latest.get('ATR')) else 1.0
     dir_mult = 1 if bias == "BULLISH" else -1 if bias == "BEARISH" else 0
 
     likely   = current + dir_mult * atr * 1.0
