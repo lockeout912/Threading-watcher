@@ -1,3 +1,4 @@
+import time
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -11,56 +12,72 @@ def flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def fetch_history(ticker, interval, period, prepost=True):
+    """
+    More reliable Yahoo fetch path for Streamlit Cloud.
+    """
+    try:
+        tk = yf.Ticker(ticker)
+        df = tk.history(interval=interval, period=period, prepost=prepost, auto_adjust=False)
+        df = flatten_columns(df)
+
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        return df
+    except Exception as e:
+        print(f"fetch_history error for {ticker} interval={interval} period={period}: {e}")
+        return pd.DataFrame()
+
+
 def get_data(ticker, interval="5m", period="5d"):
     """
-    Fetch market data with fallbacks.
-    Only require the columns we actually use.
+    Fetch market data with retries + fallbacks.
     """
     attempts = [
         {"interval": interval, "period": period},
         {"interval": "5m", "period": "1d"},
         {"interval": "15m", "period": "5d"},
-        {"interval": "1d", "period": "1mo"},
+        {"interval": "30m", "period": "1mo"},
+        {"interval": "1d", "period": "3mo"},
     ]
 
     for attempt in attempts:
-        try:
-            df = yf.download(
-                ticker,
-                interval=attempt["interval"],
-                period=attempt["period"],
-                progress=False,
-                auto_adjust=False,
-                threads=False,
-                prepost=True,
-            )
+        for retry in range(3):
+            try:
+                df = fetch_history(
+                    ticker=ticker,
+                    interval=attempt["interval"],
+                    period=attempt["period"],
+                    prepost=True
+                )
 
-            df = flatten_columns(df)
+                if df.empty:
+                    time.sleep(1)
+                    continue
 
-            if df.empty:
-                continue
+                required = ["Open", "High", "Low", "Close", "Volume"]
+                missing = [col for col in required if col not in df.columns]
+                if missing:
+                    print(f"{ticker}: missing required columns {missing}")
+                    time.sleep(1)
+                    continue
 
-            required = ["Open", "High", "Low", "Close", "Volume"]
-            missing = [col for col in required if col not in df.columns]
-            if missing:
-                print(f"{ticker}: missing required columns {missing}")
-                continue
+                df = df.dropna(subset=required).copy()
+                if df.empty:
+                    print(f"{ticker}: empty after subset dropna")
+                    time.sleep(1)
+                    continue
 
-            # Only drop rows missing the columns we actually need
-            df = df.dropna(subset=required).copy()
+                df = df.sort_index()
+                print(
+                    f"{ticker}: loaded {len(df)} rows using interval={attempt['interval']} period={attempt['period']} retry={retry+1}"
+                )
+                return df
 
-            if df.empty:
-                print(f"{ticker}: data became empty after subset dropna")
-                continue
-
-            df = df.sort_index()
-            print(
-                f"{ticker}: loaded {len(df)} rows using interval={attempt['interval']} period={attempt['period']}"
-            )
-            return df
-
-        except Exception as e:
-            print(f"get_data error for {ticker} with {attempt}: {e}")
+            except Exception as e:
+                print(f"get_data error for {ticker} with {attempt} retry={retry+1}: {e}")
+                time.sleep(1)
 
     print(f"All data attempts failed for {ticker}")
     return pd.DataFrame()
