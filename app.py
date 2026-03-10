@@ -9,6 +9,7 @@ st.caption("Safe mode is live. Core board first, battle map next.")
 tickers = ["SPY", "QQQ"]
 
 for ticker in tickers:
+
     st.subheader(ticker)
 
     sig = generate_signal(ticker)
@@ -17,18 +18,22 @@ for ticker in tickers:
         st.error(sig["error"])
         continue
 
-    st.write(f"Price: ${sig['price']:.2f}")
+    price = sig["price"]
+    ema = sig["ema9"]
+    vwap = sig["vwap"]
+
+    st.write(f"Price: ${price:.2f}")
     st.write(f"Bias: {sig['bias']}")
     st.write(f"Signal: {sig['signal']}")
     st.write(f"Pressure: {sig['pressure']}/100")
     st.write(f"Heat: {sig['heat']}")
     st.write(f"RSI: {sig['rsi']:.2f}")
-    st.write(f"EMA9: {sig['ema9']:.2f}")
-    st.write(f"VWAP: {sig['vwap']:.2f}")
+    st.write(f"EMA9: {ema:.2f}")
+    st.write(f"VWAP: {vwap:.2f}")
 
-    price = sig["price"]
-    ema = sig["ema9"]
-    vwap = sig["vwap"]
+    # --------------------------
+    # TRADE MAP
+    # --------------------------
 
     calls_level = max(ema, vwap)
     puts_level = min(ema, vwap)
@@ -44,10 +49,11 @@ for ticker in tickers:
     invalidation = puts_level - (range_size / 2)
     warning = (calls_level + puts_level) / 2
 
-    st.markdown("### Trade Map")
+    st.markdown("## Trade Map")
 
     st.write(f"Calls favored above: {calls_level:.2f}")
     st.write(f"Puts favored below: {puts_level:.2f}")
+
     st.write(f"Chop zone: {puts_level:.2f} - {calls_level:.2f}")
 
     st.write(f"Warning line: {warning:.2f}")
@@ -59,31 +65,32 @@ for ticker in tickers:
 
     if price > calls_level:
         st.success(
-            f"Bulls have control above {calls_level:.2f}. "
-            f"Calls favored toward {likely_up:.2f}"
+            f"BULL CONTROL — calls favored toward {likely_up:.2f}"
         )
 
     elif price < puts_level:
         st.error(
-            f"Bears have control below {puts_level:.2f}. "
-            f"Puts favored toward {likely_down:.2f}"
+            f"BEAR CONTROL — puts favored toward {likely_down:.2f}"
         )
 
     else:
         st.warning(
-            f"Price is inside chop between {puts_level:.2f} and {calls_level:.2f}. "
-            f"Wait for breakout."
+            "CHOP ZONE — wait for breakout"
         )
 
-    if st.button(f"Show Chart {ticker}", key=ticker):
+    if st.button(f"Show Chart {ticker}"):
 
         df = get_data(ticker)
 
         if df.empty:
             st.warning("No chart data available.")
+
         else:
+
             df = add_indicators(df)
-            cols = [c for c in ["Close", "EMA9", "VWAP"] if c in df.columns]
+
+            cols = [c for c in ["Close","EMA9","VWAP"] if c in df.columns]
+
             st.line_chart(df[cols])
 
     st.divider()
