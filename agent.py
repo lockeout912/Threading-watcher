@@ -104,7 +104,140 @@ def add_indicators(df):
     cum_vol = df["Volume"].cumsum().replace(0, np.nan)
     df["VWAP"] = cum_tpv / cum_vol
 
+    df["Range"] = df["High"] - df["Low"]
+    df["AvgRange10"] = df["Range"].rolling(10).mean()
+
     return df
+
+
+def build_battle_map(df, ticker="SPY"):
+    df = add_indicators(df)
+    latest = df.iloc[-1]
+    current = float(latest["Close"])
+
+    ema9 = float(latest["EMA9"]) if pd.notna(latest["EMA9"]) else current
+    vwap = float(latest["VWAP"]) if pd.notna(latest["VWAP"]) else current
+    rsi = float(latest["RSI"]) if pd.notna(latest["RSI"]) else 50.0
+
+    # Use recent bars to define a live battlefield
+    recent = df.tail(12).copy()  # roughly last hour on 5m
+    recent_high = float(recent["High"].max())
+    recent_low = float(recent["Low"].min())
+    range_size = max(recent_high - recent_low, 0.01)
+
+    # Control zones
+    bull_control = max(vwap, ema9)
+    bear_control = min(vwap, ema9)
+
+    # A small no-man's-land / chop band around the midpoint
+    midpoint = (recent_high + recent_low) / 2
+    chop_half_band = max(range_size * 0.10, current * 0.0015)
+
+    chop_low = midpoint - chop_half_band
+    chop_high = midpoint + chop_half_band
+
+    # Direction bias
+    if current > bull_control and ema9 >= vwap:
+        bias = "BULLISH"
+    elif current < bear_control and ema9 <= vwap:
+        bias = "BEARISH"
+    else:
+        bias = "NEUTRAL"
+
+    # Pressure
+    pressure = 50
+    if rsi > 60:
+        pressure += 15
+    elif rsi < 40:
+        pressure -= 15
+
+    if current > ema9:
+        pressure += 10
+    else:
+        pressure -= 10
+
+    if current > vwap:
+        pressure += 10
+    else:
+        pressure -= 10
+
+    pressure = max(0, min(100, pressure))
+    heat = "HOT" if pressure >= 70 else "WARM" if pressure >= 45 else "COLD"
+
+    # Regime
+    avg_range = float(latest["AvgRange10"]) if pd.notna(latest["AvgRange10"]) else range_size / 3
+    if range_size < current * 0.004:
+        regime = "CHOP"
+    elif avg_range > 0 and latest["Range"] > avg_range * 1.35:
+        regime = "EXPANSION"
+    else:
+        regime = "TREND"
+
+    # Levels
+    calls_favored_above = bull_control
+    puts_favored_below = bear_control
+    warning_line = ema9 if bias == "BULLISH" else vwap if bias == "BEARISH" else midpoint
+    invalidation = recent_low if bias == "BULLISH" else recent_high if bias == "BEARISH" else midpoint
+
+    # Targets
+    likely_up = current + range_size * 0.5
+    stretch_up = current + range_size * 1.0
+    likely_down = current - range_size * 0.5
+    stretch_down = current - range_size * 1.0
+
+    if bias == "BULLISH":
+        signal = f"CALLS FAVORED above {calls_favored_above:.2f}"
+    elif bias == "BEARISH":
+        signal = f"PUTS FAVORED below {puts_favored_below:.2f}"
+    else:
+        signal = "NO CLEAR EDGE - CHOP / WAIT"
+
+    # Commentary
+    if bias == "BULLISH":
+        commentary = (
+            f"Bulls have the ball above {calls_favored_above:.2f}. "
+            f"Watch for stall near {likely_up:.2f}. "
+            f"Warning if price slips under {warning_line:.2f}. "
+            f"Long thesis is in trouble below {invalidation:.2f}."
+        )
+    elif bias == "BEARISH":
+        commentary = (
+            f"Bears control below {puts_favored_below:.2f}. "
+            f"Watch for stall near {likely_down:.2f}. "
+            f"Warning if price reclaims {warning_line:.2f}. "
+            f"Short thesis is in trouble above {invalidation:.2f}."
+        )
+    else:
+        commentary = (
+            f"Price is in no-man's-land between {chop_low:.2f} and {chop_high:.2f}. "
+            f"Wait for a clean break above {calls_favored_above:.2f} or below {puts_favored_below:.2f}."
+        )
+
+    return {
+        "ticker": ticker,
+        "price": current,
+        "bias": bias,
+        "signal": signal,
+        "pressure": pressure,
+        "heat": heat,
+        "rsi": rsi,
+        "ema9": ema9,
+        "vwap": vwap,
+        "regime": regime,
+        "calls_favored_above": calls_favored_above,
+        "puts_favored_below": puts_favored_below,
+        "chop_low": chop_low,
+        "chop_high": chop_high,
+        "warning_line": warning_line,
+        "invalidation": invalidation,
+        "likely_up": likely_up,
+        "stretch_up": stretch_up,
+        "likely_down": likely_down,
+        "stretch_down": stretch_down,
+        "recent_high": recent_high,
+        "recent_low": recent_low,
+        "commentary": commentary,
+    }
 
 
 def generate_signal(ticker="SPY"):
@@ -114,44 +247,7 @@ def generate_signal(ticker="SPY"):
         if df.empty:
             return {"error": f"No data for {ticker}"}
 
-        df = add_indicators(df)
-        latest = df.iloc[-1]
-
-        price = float(latest["Close"])
-        ema9 = float(latest["EMA9"]) if pd.notna(latest["EMA9"]) else price
-        vwap = float(latest["VWAP"]) if pd.notna(latest["VWAP"]) else price
-        rsi = float(latest["RSI"]) if pd.notna(latest["RSI"]) else 50.0
-
-        if price > ema9 and ema9 > vwap:
-            bias = "BULLISH"
-            signal = f"CALLS BIAS @ {price:.2f}"
-        elif price < ema9 and ema9 < vwap:
-            bias = "BEARISH"
-            signal = f"PUTS BIAS @ {price:.2f}"
-        else:
-            bias = "NEUTRAL"
-            signal = "No Clear Signal"
-
-        pressure = 50
-        if rsi > 60:
-            pressure += 20
-        elif rsi < 40:
-            pressure -= 20
-
-        pressure = max(0, min(100, pressure))
-        heat = "HOT" if pressure >= 70 else "WARM" if pressure >= 45 else "COLD"
-
-        return {
-            "ticker": ticker,
-            "price": price,
-            "bias": bias,
-            "signal": signal,
-            "pressure": pressure,
-            "heat": heat,
-            "rsi": rsi,
-            "ema9": ema9,
-            "vwap": vwap,
-        }
+        return build_battle_map(df, ticker=ticker)
 
     except Exception as e:
         print(f"generate_signal error for {ticker}: {e}")
