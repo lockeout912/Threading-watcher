@@ -32,8 +32,7 @@ for ticker in tickers:
             st.warning("No chart data available.")
         else:
             df = add_indicators(df)
-            cols = [c for c in ["Close", "EMA9", "VWAP"] if c in df.columns]
-            st.line_chart(df[cols])
+            st.line_chart(df[["Close", "EMA9", "VWAP"]])
 
 st.divider()
 st.write("When this is stable, next upgrade is the SPY battle map: favored side, chop zone, stall warning, invalidation, and exit flag.")
