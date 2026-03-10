@@ -1,11 +1,9 @@
 import streamlit as st
-import yfinance as yf
 from agent import generate_signal, get_data, add_indicators
 
 st.set_page_config(page_title="Lockout Signals", layout="wide")
 
 st.title("Lockout Signals • SPY / QQQ")
-
 st.caption("Safe-mode build to get the app running first.")
 
 tickers = ["SPY", "QQQ"]
@@ -38,4 +36,4 @@ for ticker in tickers:
             st.line_chart(df[cols])
 
 st.divider()
-st.write("If this loads, the app framework is healthy and we can add back ML, gauges, and auto-refresh one piece at a time.")
+st.write("Framework is live. Next step: rebuild the battle-map version cleanly.")
