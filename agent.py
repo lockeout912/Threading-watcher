@@ -6,14 +6,19 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
+print("agent.py loaded successfully")
+
 ml_model = None
 ml_features = ['RSI', 'MACD', 'ADX', 'ATR', 'Close', 'Volume']
 
 def get_data(ticker, interval='5m', period='5d'):
+    print(f"Fetching data for {ticker}")
     try:
         df = yf.download(ticker, interval=interval, period=period, prepost=True, progress=False)
+        print(f"Data shape for {ticker}: {df.shape}")
         return df if not df.empty else pd.DataFrame()
-    except:
+    except Exception as e:
+        print(f"Data fetch error for {ticker}: {e}")
         return pd.DataFrame()
 
 def calculate_chop(df, period=14):
@@ -27,7 +32,8 @@ def calculate_chop(df, period=14):
         range_hl = (df['High'].rolling(period).max() - df['Low'].rolling(period).min())
         chop = 100 * np.log10(atr_sum / period / range_hl) / np.log10(period)
         return chop.iloc[-1]
-    except:
+    except Exception as e:
+        print(f"CHOP error: {e}")
         return np.nan
 
 def calculate_bb_squeeze(df, period=20):
@@ -41,7 +47,8 @@ def calculate_bb_squeeze(df, period=20):
         bb_width = (upper - lower) / rolling_mean
         squeeze = bb_width < bb_width.rolling(50).min() * 1.05
         return squeeze.iloc[-1], bb_width.iloc[-1]
-    except:
+    except Exception as e:
+        print(f"BB squeeze error: {e}")
         return False, np.nan
 
 def detect_divergence(df, col, lookback=20):
@@ -55,19 +62,25 @@ def detect_divergence(df, col, lookback=20):
         if price_ll_idx > ind_ll_idx and ind.iloc[-1] > ind.iloc[ind_ll_idx]:
             return True
         return False
-    except:
+    except Exception as e:
+        print(f"Divergence error: {e}")
         return False
 
 def get_vix_futures():
     vix = 20.0
+    es = 'N/A'
+    nq = 'N/A'
     try:
         vix_df = get_data('^VIX', '1m', '1d')
         if not vix_df.empty:
             vix = vix_df['Close'].iloc[-1]
+    except Exception as e:
+        print(f"VIX fetch error: {e}")
+    try:
+        es = yf.Ticker('ES=F').info.get('regularMarketPrice', 'N/A')
+        nq = yf.Ticker('NQ=F').info.get('regularMarketPrice', 'N/A')
     except:
         pass
-    es = yf.Ticker('ES=F').info.get('regularMarketPrice', 'N/A')
-    nq = yf.Ticker('NQ=F').info.get('regularMarketPrice', 'N/A')
     return vix, es, nq
 
 def add_indicators(df):
@@ -112,6 +125,7 @@ def add_indicators(df):
 
     df['CHOP'] = pd.Series([calculate_chop(df.iloc[:i+1]) for i in range(len(df))])
 
+    print("Indicators added successfully")
     return df
 
 def pressure_score(df):
@@ -132,23 +146,28 @@ def pressure_score(df):
 def train_simple_ml():
     global ml_model
     try:
+        print("Starting ML training")
         df = get_data('SPY', '5m', '730d')
         if df.empty:
+            print("No data for ML")
             return
         df = add_indicators(df)
         df['Future_Return'] = df['Close'].shift(-6) / df['Close'] - 1
         df['Target'] = np.where(df['Future_Return'] > 0.002, 1, 0)
         df = df.dropna()
         if len(df) < 10:
+            print("Too few data for ML")
             return
         X = df[ml_features].fillna(0)
         y = df['Target']
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
         model = RandomForestClassifier(n_estimators=50, random_state=42)
         model.fit(X_train, y_train)
+        print(f"ML trained - accuracy: {accuracy_score(y_test, model.predict(X_test)):.2%}")
         ml_model = model
     except Exception as e:
-        print(f"ML skipped: {e}")
+        print(f"ML training failed: {e}")
+        ml_model = None
 
 def predict_ml(df):
     if ml_model is None or df.empty:
@@ -157,11 +176,13 @@ def predict_ml(df):
         latest = df[ml_features].iloc[-1:].fillna(0)
         prob = ml_model.predict_proba(latest)[0][1] * 100
         return round(prob, 1)
-    except:
+    except Exception as e:
+        print(f"ML predict error: {e}")
         return 50.0
 
 def generate_signal(ticker='SPY'):
     try:
+        print(f"Generating signal for {ticker}")
         df_5m = get_data(ticker, '5m', '5d')
         if df_5m.empty:
             return {"error": "No data"}
@@ -206,6 +227,7 @@ def generate_signal(ticker='SPY'):
             direction = "CALLS" if bias == "BULLISH" else "PUTS"
             signal_text = f"ENTRY ACTIVE — {direction} @ {current:.2f}"
 
+        print(f"Signal generated for {ticker}")
         return {
             'ticker': ticker,
             'price': current,
@@ -225,4 +247,5 @@ def generate_signal(ticker='SPY'):
             'signal': signal_text
         }
     except Exception as e:
+        print(f"Generate signal error for {ticker}: {e}")
         return {"error": f"Signal error: {str(e)}"}
