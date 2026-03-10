@@ -3,8 +3,6 @@ import requests
 import pandas as pd
 import numpy as np
 
-print("agent.py loaded")
-
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
@@ -60,13 +58,29 @@ def fetch_yahoo_chart(
         return pd.DataFrame()
 
 
-def get_data(ticker: str, interval: str = "5m", period: str = "5d") -> pd.DataFrame:
+def default_range_for_interval(interval: str) -> str:
+    mapping = {
+        "1m": "1d",
+        "2m": "1d",
+        "5m": "5d",
+        "15m": "5d",
+        "30m": "1mo",
+        "60m": "3mo",
+        "1d": "6mo",
+    }
+    return mapping.get(interval, "5d")
+
+
+def get_data(ticker: str, interval: str = "5m", period: str | None = None) -> pd.DataFrame:
+    if period is None:
+        period = default_range_for_interval(interval)
+
     attempts = [
         {"interval": interval, "range": period},
         {"interval": "5m", "range": "1d"},
         {"interval": "15m", "range": "5d"},
         {"interval": "30m", "range": "1mo"},
-        {"interval": "1d", "range": "3mo"},
+        {"interval": "1d", "range": "6mo"},
     ]
 
     for attempt in attempts:
@@ -99,6 +113,7 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     df["EMA9"] = df["Close"].ewm(span=9, adjust=False).mean()
+    df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
 
     delta = df["Close"].diff()
     gain = delta.clip(lower=0).rolling(14).mean()
@@ -115,6 +130,9 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["BarRange"] = df["High"] - df["Low"]
     df["AvgRange10"] = df["BarRange"].rolling(10).mean()
 
+    df["PriceChange"] = df["Close"].diff()
+    df["VolumeAvg10"] = df["Volume"].rolling(10).mean()
+
     return df
 
 
@@ -127,9 +145,6 @@ def _today_slice(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_premarket_levels(df: pd.DataFrame):
-    """
-    Premarket: 04:00 - 09:29 ET
-    """
     if df.empty:
         return None, None
 
@@ -147,10 +162,6 @@ def get_premarket_levels(df: pd.DataFrame):
 
 
 def get_opening_range(df: pd.DataFrame):
-    """
-    ORB based on first 5 minutes of regular session: 09:30 - 09:34 ET
-    Returns (or_high, or_low) or (None, None)
-    """
     if df.empty:
         return None, None
 
@@ -159,7 +170,6 @@ def get_opening_range(df: pd.DataFrame):
         return None, None
 
     orb = today_df.between_time("09:30", "09:34")
-
     if orb.empty:
         return None, None
 
@@ -168,14 +178,20 @@ def get_opening_range(df: pd.DataFrame):
     return or_high, or_low
 
 
-def get_market_state(
-    price: float,
-    vwap: float,
-    ema9: float,
-    or_high,
-    or_low,
-    avg_range: float
-) -> str:
+def get_session_status(df: pd.DataFrame) -> str:
+    if df.empty:
+        return "NO DATA"
+
+    now = pd.Timestamp.now(tz="America/New_York").time()
+
+    if now >= pd.Timestamp("04:00").time() and now < pd.Timestamp("09:30").time():
+        return "PREMARKET"
+    if now >= pd.Timestamp("09:30").time() and now <= pd.Timestamp("16:00").time():
+        return "REGULAR SESSION"
+    return "AFTER HOURS"
+
+
+def get_market_state(price, vwap, ema9, or_high, or_low, avg_range, pm_high, pm_low):
     if or_high is not None and or_low is not None:
         if price > or_high and price > vwap:
             return "BULL BREAKOUT"
@@ -183,6 +199,11 @@ def get_market_state(
             return "BEAR BREAKOUT"
         if or_low <= price <= or_high:
             return "OPENING RANGE CHOP"
+
+    if pm_high is not None and price > pm_high and price > vwap:
+        return "PREMARKET BREAKOUT UP"
+    if pm_low is not None and price < pm_low and price < vwap:
+        return "PREMARKET BREAKDOWN"
 
     if abs(price - vwap) <= max(price * 0.001, 0.25):
         return "VWAP CHOP"
@@ -199,18 +220,72 @@ def get_market_state(
     return "NEUTRAL"
 
 
+def classify_signal_strength(pressure: int, market_state: str) -> str:
+    if "BREAKOUT" in market_state and pressure >= 70:
+        return "HIGH CONVICTION"
+    if pressure >= 60:
+        return "MEDIUM CONVICTION"
+    if "CHOP" in market_state:
+        return "LOW CONVICTION"
+    return "DEVELOPING"
+
+
+def rolling_feed(df: pd.DataFrame, signal_pack: dict) -> list[str]:
+    events = []
+
+    price = signal_pack["price"]
+    calls = signal_pack["calls_favored_above"]
+    puts = signal_pack["puts_favored_below"]
+    state = signal_pack["market_state"]
+    warning = signal_pack["warning_line"]
+    or_high = signal_pack["or_high"]
+    or_low = signal_pack["or_low"]
+
+    if "BULL" in state:
+        events.append(f"🚀 {signal_pack['ticker']} bulls in control above {calls:.2f}")
+    elif "BEAR" in state:
+        events.append(f"🩸 {signal_pack['ticker']} bears in control below {puts:.2f}")
+    else:
+        events.append(f"🛰️ {signal_pack['ticker']} inside active battle zone")
+
+    if or_high is not None and price > or_high:
+        events.append(f"⚡ Price above OR High {or_high:.2f}")
+    if or_low is not None and price < or_low:
+        events.append(f"⚠️ Price below OR Low {or_low:.2f}")
+
+    if price > calls:
+        events.append(f"✅ Calls favored while holding above {calls:.2f}")
+    elif price < puts:
+        events.append(f"✅ Puts favored while holding below {puts:.2f}")
+    else:
+        events.append(f"🟡 Chop zone active around {warning:.2f}")
+
+    if signal_pack["pressure"] >= 70:
+        events.append("🔥 Momentum pressure elevated")
+    elif signal_pack["pressure"] <= 40:
+        events.append("❄️ Momentum pressure weak")
+
+    latest = df.iloc[-1]
+    if pd.notna(latest.get("VolumeAvg10")) and latest["Volume"] > latest["VolumeAvg10"] * 1.5:
+        events.append("📣 Volume surge detected")
+
+    return events[:6]
+
+
 def build_battle_map(df: pd.DataFrame, ticker: str = "SPY") -> dict:
     df = add_indicators(df)
     latest = df.iloc[-1]
 
     price = float(latest["Close"])
     ema9 = float(latest["EMA9"]) if pd.notna(latest["EMA9"]) else price
+    ema20 = float(latest["EMA20"]) if pd.notna(latest["EMA20"]) else price
     vwap = float(latest["VWAP"]) if pd.notna(latest["VWAP"]) else price
     rsi = float(latest["RSI"]) if pd.notna(latest["RSI"]) else 50.0
     avg_range = float(latest["AvgRange10"]) if pd.notna(latest["AvgRange10"]) else 0.0
 
     pm_high, pm_low = get_premarket_levels(df)
     or_high, or_low = get_opening_range(df)
+    session_status = get_session_status(df)
 
     if price > ema9 and ema9 > vwap:
         bias = "BULLISH"
@@ -236,22 +311,25 @@ def build_battle_map(df: pd.DataFrame, ticker: str = "SPY") -> dict:
     else:
         pressure -= 10
 
+    if price > ema20:
+        pressure += 5
+    else:
+        pressure -= 5
+
     pressure = max(0, min(100, pressure))
     heat = "HOT" if pressure >= 70 else "WARM" if pressure >= 45 else "COLD"
 
-    market_state = get_market_state(price, vwap, ema9, or_high, or_low, avg_range)
+    market_state = get_market_state(price, vwap, ema9, or_high, or_low, avg_range, pm_high, pm_low)
+    conviction = classify_signal_strength(pressure, market_state)
 
-    # Control zones
     calls_favored_above = max(ema9, vwap)
     puts_favored_below = min(ema9, vwap)
 
-    # If ORB exists, tighten directional trigger with ORH/ORL
     if or_high is not None:
         calls_favored_above = max(calls_favored_above, or_high)
     if or_low is not None:
         puts_favored_below = min(puts_favored_below, or_low)
 
-    # Chop zone
     if or_high is not None and or_low is not None and or_low < or_high:
         chop_low = or_low
         chop_high = or_high
@@ -259,9 +337,10 @@ def build_battle_map(df: pd.DataFrame, ticker: str = "SPY") -> dict:
         chop_low = puts_favored_below
         chop_high = calls_favored_above
 
-    # Range engine
     if or_high is not None and or_low is not None:
         range_size = max(or_high - or_low, price * 0.003)
+    elif pm_high is not None and pm_low is not None:
+        range_size = max(pm_high - pm_low, price * 0.003)
     else:
         range_size = max(abs(ema9 - vwap) * 2, price * 0.003)
 
@@ -279,7 +358,6 @@ def build_battle_map(df: pd.DataFrame, ticker: str = "SPY") -> dict:
     likely_down = price - (range_size * 0.75)
     stretch_down = price - (range_size * 1.50)
 
-    # Main signal
     if market_state == "BULL BREAKOUT":
         signal = f"CALLS FAVORED above {calls_favored_above:.2f}"
     elif market_state == "BEAR BREAKOUT":
@@ -293,19 +371,18 @@ def build_battle_map(df: pd.DataFrame, ticker: str = "SPY") -> dict:
     else:
         signal = "NO CLEAR EDGE"
 
-    # Commentary
     if market_state == "BULL BREAKOUT":
         commentary = (
             f"{ticker} is above the opening range and above VWAP. "
             f"Bulls have control while price holds above {calls_favored_above:.2f}. "
-            f"Watch for continuation toward {likely_up:.2f}, with stretch potential near {stretch_up:.2f}. "
+            f"Primary continuation zone is {likely_up:.2f}, with stretch potential near {stretch_up:.2f}. "
             f"Warning if momentum fades back under {warning_line:.2f}."
         )
     elif market_state == "BEAR BREAKOUT":
         commentary = (
             f"{ticker} is below the opening range and below VWAP. "
             f"Bears have control while price stays under {puts_favored_below:.2f}. "
-            f"Watch for continuation toward {likely_down:.2f}, with stretch potential near {stretch_down:.2f}. "
+            f"Primary continuation zone is {likely_down:.2f}, with stretch potential near {stretch_down:.2f}. "
             f"Warning if price reclaims {warning_line:.2f}."
         )
     elif "CHOP" in market_state:
@@ -328,11 +405,11 @@ def build_battle_map(df: pd.DataFrame, ticker: str = "SPY") -> dict:
         )
     else:
         commentary = (
-            f"{ticker} is in a mixed state. "
-            f"Use {calls_favored_above:.2f} as the upside trigger and {puts_favored_below:.2f} as the downside trigger."
+            f"{ticker} is in a mixed state. Use {calls_favored_above:.2f} as the upside trigger "
+            f"and {puts_favored_below:.2f} as the downside trigger."
         )
 
-    return {
+    pack = {
         "ticker": ticker,
         "price": price,
         "bias": bias,
@@ -341,8 +418,11 @@ def build_battle_map(df: pd.DataFrame, ticker: str = "SPY") -> dict:
         "heat": heat,
         "rsi": rsi,
         "ema9": ema9,
+        "ema20": ema20,
         "vwap": vwap,
         "market_state": market_state,
+        "conviction": conviction,
+        "session_status": session_status,
         "pm_high": pm_high,
         "pm_low": pm_low,
         "or_high": or_high,
@@ -360,10 +440,13 @@ def build_battle_map(df: pd.DataFrame, ticker: str = "SPY") -> dict:
         "commentary": commentary,
     }
 
+    pack["feed"] = rolling_feed(df, pack)
+    return pack
 
-def generate_signal(ticker: str = "SPY") -> dict:
+
+def generate_signal(ticker: str = "SPY", interval: str = "5m") -> dict:
     try:
-        df = get_data(ticker)
+        df = get_data(ticker, interval=interval)
 
         if df.empty:
             return {"error": f"No data for {ticker}"}
