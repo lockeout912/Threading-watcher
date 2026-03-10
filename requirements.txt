@@ -2,6 +2,6 @@ streamlit==1.39.0
 yfinance==0.2.44
 pandas==2.2.3
 numpy==2.1.2
-ta-lib==0.4.32  # Note: may require binary wheel or conda install on some systems
+pandas-ta==0.3.14b0
 scikit-learn==1.5.2
 plotly==5.24.1
