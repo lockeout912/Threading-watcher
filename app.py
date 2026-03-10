@@ -3,16 +3,15 @@ import time
 import plotly.graph_objects as go
 from agent import generate_signal, train_simple_ml, get_data
 
-# Safe ML train
-if 'ml_trained' not in st.session_state:
-    with st.spinner("Initializing..."):
-        try:
-            train_simple_ml()
-        except:
-            pass
-    st.session_state.ml_trained = True
-
 st.set_page_config(page_title="Lockout Signals • SPY/QQQ", layout="wide")
+
+print("app.py started")
+
+# ML button (not auto-run)
+if st.button("Train ML Model (one-time)"):
+    with st.spinner("Training ML..."):
+        train_simple_ml()
+    st.success("ML trained (check logs if needed)")
 
 st.markdown("""
 <style>
