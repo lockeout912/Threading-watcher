@@ -10,19 +10,6 @@ HEADERS = {
 }
 
 
-def interval_to_seconds(interval: str) -> int:
-    mapping = {
-        "1m": 60,
-        "2m": 120,
-        "5m": 300,
-        "15m": 900,
-        "30m": 1800,
-        "60m": 3600,
-        "1d": 86400,
-    }
-    return mapping.get(interval, 300)
-
-
 def fetch_yahoo_chart(ticker: str, interval: str = "5m", range_: str = "5d", prepost: bool = True) -> pd.DataFrame:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
     params = {
@@ -56,11 +43,10 @@ def fetch_yahoo_chart(ticker: str, interval: str = "5m", range_: str = "5d", pre
         df["Datetime"] = pd.to_datetime(timestamps, unit="s", utc=True).tz_convert("America/New_York")
         df = df.set_index("Datetime")
 
-        required = ["Open", "High", "Low", "Close", "Volume"]
         df = df.dropna(subset=["Open", "High", "Low", "Close"]).copy()
         df["Volume"] = df["Volume"].fillna(0)
 
-        return df[required]
+        return df[["Open", "High", "Low", "Close", "Volume"]]
 
     except Exception as e:
         print(f"fetch_yahoo_chart error for {ticker} {interval} {range_}: {e}")
@@ -150,4 +136,23 @@ def generate_signal(ticker="SPY"):
         if rsi > 60:
             pressure += 20
         elif rsi < 40:
-           
+            pressure -= 20
+
+        pressure = max(0, min(100, pressure))
+        heat = "HOT" if pressure >= 70 else "WARM" if pressure >= 45 else "COLD"
+
+        return {
+            "ticker": ticker,
+            "price": price,
+            "bias": bias,
+            "signal": signal,
+            "pressure": pressure,
+            "heat": heat,
+            "rsi": rsi,
+            "ema9": ema9,
+            "vwap": vwap,
+        }
+
+    except Exception as e:
+        print(f"generate_signal error for {ticker}: {e}")
+        return {"error": f"Signal error: {str(e)}"}
