@@ -10,7 +10,12 @@ HEADERS = {
 }
 
 
-def fetch_yahoo_chart(ticker: str, interval: str = "5m", range_: str = "5d", prepost: bool = True) -> pd.DataFrame:
+def fetch_yahoo_chart(
+    ticker: str,
+    interval: str = "5m",
+    range_: str = "5d",
+    prepost: bool = True
+) -> pd.DataFrame:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
     params = {
         "interval": interval,
@@ -20,10 +25,10 @@ def fetch_yahoo_chart(ticker: str, interval: str = "5m", range_: str = "5d", pre
     }
 
     try:
-        r = requests.get(url, params=params, headers=HEADERS, timeout=15)
-        r.raise_for_status()
+        response = requests.get(url, params=params, headers=HEADERS, timeout=15)
+        response.raise_for_status()
 
-        data = r.json()
+        data = response.json()
         result = data["chart"]["result"][0]
 
         timestamps = result.get("timestamp", [])
@@ -40,9 +45,11 @@ def fetch_yahoo_chart(ticker: str, interval: str = "5m", range_: str = "5d", pre
             "Volume": quote.get("volume", []),
         })
 
-        df["Datetime"] = pd.to_datetime(timestamps, unit="s", utc=True).tz_convert("America/New_York")
-        df = df.set_index("Datetime")
+        df["Datetime"] = pd.to_datetime(
+            timestamps, unit="s", utc=True
+        ).tz_convert("America/New_York")
 
+        df = df.set_index("Datetime")
         df = df.dropna(subset=["Open", "High", "Low", "Close"]).copy()
         df["Volume"] = df["Volume"].fillna(0)
 
@@ -53,7 +60,7 @@ def fetch_yahoo_chart(ticker: str, interval: str = "5m", range_: str = "5d", pre
         return pd.DataFrame()
 
 
-def get_data(ticker, interval="5m", period="5d"):
+def get_data(ticker: str, interval: str = "5m", period: str = "5d") -> pd.DataFrame:
     attempts = [
         {"interval": interval, "range": period},
         {"interval": "5m", "range": "1d"},
@@ -74,7 +81,8 @@ def get_data(ticker, interval="5m", period="5d"):
             if not df.empty:
                 df = df.sort_index()
                 print(
-                    f"{ticker}: loaded {len(df)} rows using interval={attempt['interval']} range={attempt['range']} retry={retry+1}"
+                    f"{ticker}: loaded {len(df)} rows using "
+                    f"interval={attempt['interval']} range={attempt['range']} retry={retry + 1}"
                 )
                 return df
 
@@ -84,7 +92,7 @@ def get_data(ticker, interval="5m", period="5d"):
     return pd.DataFrame()
 
 
-def add_indicators(df):
+def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
 
@@ -104,59 +112,126 @@ def add_indicators(df):
     cum_vol = df["Volume"].cumsum().replace(0, np.nan)
     df["VWAP"] = cum_tpv / cum_vol
 
-    df["Range"] = df["High"] - df["Low"]
-    df["AvgRange10"] = df["Range"].rolling(10).mean()
+    df["BarRange"] = df["High"] - df["Low"]
+    df["AvgRange10"] = df["BarRange"].rolling(10).mean()
 
     return df
 
 
-def build_battle_map(df, ticker="SPY"):
+def _today_slice(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    today = pd.Timestamp.now(tz="America/New_York").date()
+    return df[df.index.date == today].copy()
+
+
+def get_premarket_levels(df: pd.DataFrame):
+    """
+    Premarket: 04:00 - 09:29 ET
+    """
+    if df.empty:
+        return None, None
+
+    today_df = _today_slice(df)
+    if today_df.empty:
+        return None, None
+
+    pre = today_df.between_time("04:00", "09:29")
+    if pre.empty:
+        return None, None
+
+    pm_high = float(pre["High"].max())
+    pm_low = float(pre["Low"].min())
+    return pm_high, pm_low
+
+
+def get_opening_range(df: pd.DataFrame):
+    """
+    ORB based on first 5 minutes of regular session: 09:30 - 09:34 ET
+    Returns (or_high, or_low) or (None, None)
+    """
+    if df.empty:
+        return None, None
+
+    today_df = _today_slice(df)
+    if today_df.empty:
+        return None, None
+
+    orb = today_df.between_time("09:30", "09:34")
+
+    if orb.empty:
+        return None, None
+
+    or_high = float(orb["High"].max())
+    or_low = float(orb["Low"].min())
+    return or_high, or_low
+
+
+def get_market_state(
+    price: float,
+    vwap: float,
+    ema9: float,
+    or_high,
+    or_low,
+    avg_range: float
+) -> str:
+    if or_high is not None and or_low is not None:
+        if price > or_high and price > vwap:
+            return "BULL BREAKOUT"
+        if price < or_low and price < vwap:
+            return "BEAR BREAKOUT"
+        if or_low <= price <= or_high:
+            return "OPENING RANGE CHOP"
+
+    if abs(price - vwap) <= max(price * 0.001, 0.25):
+        return "VWAP CHOP"
+
+    if price > ema9 and ema9 > vwap:
+        return "BULL TREND"
+
+    if price < ema9 and ema9 < vwap:
+        return "BEAR TREND"
+
+    if avg_range > 0:
+        return "DEVELOPING"
+
+    return "NEUTRAL"
+
+
+def build_battle_map(df: pd.DataFrame, ticker: str = "SPY") -> dict:
     df = add_indicators(df)
     latest = df.iloc[-1]
-    current = float(latest["Close"])
 
-    ema9 = float(latest["EMA9"]) if pd.notna(latest["EMA9"]) else current
-    vwap = float(latest["VWAP"]) if pd.notna(latest["VWAP"]) else current
+    price = float(latest["Close"])
+    ema9 = float(latest["EMA9"]) if pd.notna(latest["EMA9"]) else price
+    vwap = float(latest["VWAP"]) if pd.notna(latest["VWAP"]) else price
     rsi = float(latest["RSI"]) if pd.notna(latest["RSI"]) else 50.0
+    avg_range = float(latest["AvgRange10"]) if pd.notna(latest["AvgRange10"]) else 0.0
 
-    # Use recent bars to define a live battlefield
-    recent = df.tail(12).copy()  # roughly last hour on 5m
-    recent_high = float(recent["High"].max())
-    recent_low = float(recent["Low"].min())
-    range_size = max(recent_high - recent_low, 0.01)
+    pm_high, pm_low = get_premarket_levels(df)
+    or_high, or_low = get_opening_range(df)
 
-    # Control zones
-    bull_control = max(vwap, ema9)
-    bear_control = min(vwap, ema9)
-
-    # A small no-man's-land / chop band around the midpoint
-    midpoint = (recent_high + recent_low) / 2
-    chop_half_band = max(range_size * 0.10, current * 0.0015)
-
-    chop_low = midpoint - chop_half_band
-    chop_high = midpoint + chop_half_band
-
-    # Direction bias
-    if current > bull_control and ema9 >= vwap:
+    if price > ema9 and ema9 > vwap:
         bias = "BULLISH"
-    elif current < bear_control and ema9 <= vwap:
+    elif price < ema9 and ema9 < vwap:
         bias = "BEARISH"
     else:
         bias = "NEUTRAL"
 
-    # Pressure
     pressure = 50
+
     if rsi > 60:
         pressure += 15
     elif rsi < 40:
         pressure -= 15
 
-    if current > ema9:
+    if price > ema9:
         pressure += 10
     else:
         pressure -= 10
 
-    if current > vwap:
+    if price > vwap:
         pressure += 10
     else:
         pressure -= 10
@@ -164,58 +239,102 @@ def build_battle_map(df, ticker="SPY"):
     pressure = max(0, min(100, pressure))
     heat = "HOT" if pressure >= 70 else "WARM" if pressure >= 45 else "COLD"
 
-    # Regime
-    avg_range = float(latest["AvgRange10"]) if pd.notna(latest["AvgRange10"]) else range_size / 3
-    if range_size < current * 0.004:
-        regime = "CHOP"
-    elif avg_range > 0 and latest["Range"] > avg_range * 1.35:
-        regime = "EXPANSION"
+    market_state = get_market_state(price, vwap, ema9, or_high, or_low, avg_range)
+
+    # Control zones
+    calls_favored_above = max(ema9, vwap)
+    puts_favored_below = min(ema9, vwap)
+
+    # If ORB exists, tighten directional trigger with ORH/ORL
+    if or_high is not None:
+        calls_favored_above = max(calls_favored_above, or_high)
+    if or_low is not None:
+        puts_favored_below = min(puts_favored_below, or_low)
+
+    # Chop zone
+    if or_high is not None and or_low is not None and or_low < or_high:
+        chop_low = or_low
+        chop_high = or_high
     else:
-        regime = "TREND"
+        chop_low = puts_favored_below
+        chop_high = calls_favored_above
 
-    # Levels
-    calls_favored_above = bull_control
-    puts_favored_below = bear_control
-    warning_line = ema9 if bias == "BULLISH" else vwap if bias == "BEARISH" else midpoint
-    invalidation = recent_low if bias == "BULLISH" else recent_high if bias == "BEARISH" else midpoint
+    # Range engine
+    if or_high is not None and or_low is not None:
+        range_size = max(or_high - or_low, price * 0.003)
+    else:
+        range_size = max(abs(ema9 - vwap) * 2, price * 0.003)
 
-    # Targets
-    likely_up = current + range_size * 0.5
-    stretch_up = current + range_size * 1.0
-    likely_down = current - range_size * 0.5
-    stretch_down = current - range_size * 1.0
+    warning_line = (chop_low + chop_high) / 2
 
     if bias == "BULLISH":
-        signal = f"CALLS FAVORED above {calls_favored_above:.2f}"
+        invalidation = min(vwap, or_low) if or_low is not None else vwap
     elif bias == "BEARISH":
-        signal = f"PUTS FAVORED below {puts_favored_below:.2f}"
+        invalidation = max(vwap, or_high) if or_high is not None else vwap
     else:
-        signal = "NO CLEAR EDGE - CHOP / WAIT"
+        invalidation = warning_line
+
+    likely_up = price + (range_size * 0.75)
+    stretch_up = price + (range_size * 1.50)
+    likely_down = price - (range_size * 0.75)
+    stretch_down = price - (range_size * 1.50)
+
+    # Main signal
+    if market_state == "BULL BREAKOUT":
+        signal = f"CALLS FAVORED above {calls_favored_above:.2f}"
+    elif market_state == "BEAR BREAKOUT":
+        signal = f"PUTS FAVORED below {puts_favored_below:.2f}"
+    elif "CHOP" in market_state:
+        signal = "CHOP / WAIT FOR BREAKOUT"
+    elif bias == "BULLISH":
+        signal = f"CALLS BIAS above {calls_favored_above:.2f}"
+    elif bias == "BEARISH":
+        signal = f"PUTS BIAS below {puts_favored_below:.2f}"
+    else:
+        signal = "NO CLEAR EDGE"
 
     # Commentary
-    if bias == "BULLISH":
+    if market_state == "BULL BREAKOUT":
         commentary = (
-            f"Bulls have the ball above {calls_favored_above:.2f}. "
-            f"Watch for stall near {likely_up:.2f}. "
-            f"Warning if price slips under {warning_line:.2f}. "
-            f"Long thesis is in trouble below {invalidation:.2f}."
+            f"{ticker} is above the opening range and above VWAP. "
+            f"Bulls have control while price holds above {calls_favored_above:.2f}. "
+            f"Watch for continuation toward {likely_up:.2f}, with stretch potential near {stretch_up:.2f}. "
+            f"Warning if momentum fades back under {warning_line:.2f}."
+        )
+    elif market_state == "BEAR BREAKOUT":
+        commentary = (
+            f"{ticker} is below the opening range and below VWAP. "
+            f"Bears have control while price stays under {puts_favored_below:.2f}. "
+            f"Watch for continuation toward {likely_down:.2f}, with stretch potential near {stretch_down:.2f}. "
+            f"Warning if price reclaims {warning_line:.2f}."
+        )
+    elif "CHOP" in market_state:
+        commentary = (
+            f"{ticker} is trading inside the active battle zone between {chop_low:.2f} and {chop_high:.2f}. "
+            f"This is chop until proven otherwise. "
+            f"Wait for a clean break above {calls_favored_above:.2f} or below {puts_favored_below:.2f}."
+        )
+    elif bias == "BULLISH":
+        commentary = (
+            f"{ticker} has bullish structure with price above EMA9 and VWAP. "
+            f"Calls are favored while price holds above {calls_favored_above:.2f}. "
+            f"First push zone is {likely_up:.2f}."
         )
     elif bias == "BEARISH":
         commentary = (
-            f"Bears control below {puts_favored_below:.2f}. "
-            f"Watch for stall near {likely_down:.2f}. "
-            f"Warning if price reclaims {warning_line:.2f}. "
-            f"Short thesis is in trouble above {invalidation:.2f}."
+            f"{ticker} has bearish structure with price below EMA9 and VWAP. "
+            f"Puts are favored while price stays below {puts_favored_below:.2f}. "
+            f"First downside push zone is {likely_down:.2f}."
         )
     else:
         commentary = (
-            f"Price is in no-man's-land between {chop_low:.2f} and {chop_high:.2f}. "
-            f"Wait for a clean break above {calls_favored_above:.2f} or below {puts_favored_below:.2f}."
+            f"{ticker} is in a mixed state. "
+            f"Use {calls_favored_above:.2f} as the upside trigger and {puts_favored_below:.2f} as the downside trigger."
         )
 
     return {
         "ticker": ticker,
-        "price": current,
+        "price": price,
         "bias": bias,
         "signal": signal,
         "pressure": pressure,
@@ -223,7 +342,11 @@ def build_battle_map(df, ticker="SPY"):
         "rsi": rsi,
         "ema9": ema9,
         "vwap": vwap,
-        "regime": regime,
+        "market_state": market_state,
+        "pm_high": pm_high,
+        "pm_low": pm_low,
+        "or_high": or_high,
+        "or_low": or_low,
         "calls_favored_above": calls_favored_above,
         "puts_favored_below": puts_favored_below,
         "chop_low": chop_low,
@@ -234,13 +357,11 @@ def build_battle_map(df, ticker="SPY"):
         "stretch_up": stretch_up,
         "likely_down": likely_down,
         "stretch_down": stretch_down,
-        "recent_high": recent_high,
-        "recent_low": recent_low,
         "commentary": commentary,
     }
 
 
-def generate_signal(ticker="SPY"):
+def generate_signal(ticker: str = "SPY") -> dict:
     try:
         df = get_data(ticker)
 
