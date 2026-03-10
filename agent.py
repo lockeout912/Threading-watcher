@@ -188,10 +188,10 @@ def generate_signal(ticker='SPY'):
         atr = latest.get('ATR', 1.0) if not np.isnan(latest.get('ATR')) else 1.0
         dir_mult = 1 if bias == "BULLISH" else -1 if bias == "BEARISH" else 0
 
-        likely   = current + dir_mult * atr * 1.0
+        likely = current + dir_mult * atr * 1.0
         possible = current + dir_mult * atr * 1.5
-        stretch  = current + dir_mult * atr * 2.5
-        invalid  = current - dir_mult * atr * 0.5
+        stretch = current + dir_mult * atr * 2.5
+        invalid = current - dir_mult * atr * 0.5
 
         why_list = []
         if squeeze: why_list.append("Bollinger Squeeze → potential breakout")
