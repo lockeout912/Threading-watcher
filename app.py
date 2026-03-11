@@ -8,16 +8,16 @@ st.set_page_config(
 )
 
 # =========================================================
-# GLOBAL STYLE
+# PAGE STYLE
 # =========================================================
 st.markdown("""
 <style>
     .stApp {
         background:
-            radial-gradient(circle at 10% 8%, rgba(0,255,170,0.07), transparent 22%),
-            radial-gradient(circle at 90% 10%, rgba(0,160,255,0.08), transparent 24%),
-            radial-gradient(circle at 50% 100%, rgba(255,0,128,0.05), transparent 28%),
-            linear-gradient(180deg, #020306 0%, #050913 45%, #07101a 100%);
+            radial-gradient(circle at 12% 8%, rgba(0,255,180,0.08), transparent 22%),
+            radial-gradient(circle at 88% 10%, rgba(0,160,255,0.08), transparent 24%),
+            radial-gradient(circle at 50% 100%, rgba(255,0,120,0.05), transparent 28%),
+            linear-gradient(180deg, #020306 0%, #050913 46%, #07101a 100%);
         color: #f4f8ff;
     }
 
@@ -30,7 +30,7 @@ st.markdown("""
     }
 
     .cc-title {
-        font-size: 3.1rem;
+        font-size: 3rem;
         font-weight: 1000;
         line-height: 1.02;
         letter-spacing: 0.5px;
@@ -130,44 +130,20 @@ st.markdown("""
         justify-content: space-between;
         gap: 12px;
         flex-wrap: wrap;
+        margin-bottom: 14px;
     }
 
     .hero-symbol {
-        font-size: 1.18rem;
+        font-size: 1.45rem;
         font-weight: 1000;
         letter-spacing: 1.4px;
-        color: #dce8ff;
         text-transform: uppercase;
-        margin-bottom: 8px;
-    }
-
-    .hero-price {
-        font-size: 4rem;
-        font-weight: 1000;
-        line-height: 0.95;
         margin-bottom: 10px;
     }
 
-    .hero-price-bull {
-        color: #31f095;
-        text-shadow:
-            0 0 14px rgba(49,240,149,0.18),
-            0 0 28px rgba(49,240,149,0.08);
-    }
-
-    .hero-price-bear {
-        color: #ff627d;
-        text-shadow:
-            0 0 14px rgba(255,98,125,0.18),
-            0 0 28px rgba(255,98,125,0.08);
-    }
-
-    .hero-price-neutral {
-        color: #ffd86a;
-        text-shadow:
-            0 0 14px rgba(255,216,106,0.16),
-            0 0 28px rgba(255,216,106,0.07);
-    }
+    .symbol-bull { color: #9effcd; }
+    .symbol-bear { color: #ff9db0; }
+    .symbol-neutral { color: #ffe89a; }
 
     .hero-bias {
         padding: 12px 18px;
@@ -199,6 +175,131 @@ st.markdown("""
         border: 1px solid rgba(255,219,78,0.30);
     }
 
+    .price-box {
+        border-radius: 24px;
+        padding: 18px;
+        margin-bottom: 14px;
+        box-shadow:
+            0 16px 30px rgba(0,0,0,0.22),
+            inset 0 1px 0 rgba(255,255,255,0.03);
+    }
+
+    .price-box-bull {
+        background:
+            radial-gradient(circle at center, rgba(49,240,149,0.12), transparent 60%),
+            linear-gradient(180deg, rgba(8,35,24,0.98), rgba(8,22,18,0.98));
+        border: 1px solid rgba(49,240,149,0.20);
+    }
+
+    .price-box-bear {
+        background:
+            radial-gradient(circle at center, rgba(255,98,125,0.12), transparent 60%),
+            linear-gradient(180deg, rgba(44,10,18,0.98), rgba(24,8,12,0.98));
+        border: 1px solid rgba(255,98,125,0.20);
+    }
+
+    .price-box-neutral {
+        background:
+            radial-gradient(circle at center, rgba(255,216,106,0.10), transparent 60%),
+            linear-gradient(180deg, rgba(44,34,8,0.98), rgba(22,18,8,0.98));
+        border: 1px solid rgba(255,216,106,0.18);
+    }
+
+    .price-row {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .hero-price {
+        font-size: 4rem;
+        font-weight: 1000;
+        line-height: 0.95;
+        margin: 0;
+    }
+
+    .hero-price-bull {
+        color: #31f095;
+        text-shadow:
+            0 0 14px rgba(49,240,149,0.18),
+            0 0 28px rgba(49,240,149,0.08);
+    }
+
+    .hero-price-bear {
+        color: #ff627d;
+        text-shadow:
+            0 0 14px rgba(255,98,125,0.18),
+            0 0 28px rgba(255,98,125,0.08);
+    }
+
+    .hero-price-neutral {
+        color: #ffd86a;
+        text-shadow:
+            0 0 14px rgba(255,216,106,0.16),
+            0 0 28px rgba(255,216,106,0.07);
+    }
+
+    .daily-change {
+        padding: 10px 14px;
+        border-radius: 999px;
+        font-size: 0.95rem;
+        font-weight: 1000;
+        white-space: nowrap;
+        box-shadow:
+            0 10px 20px rgba(0,0,0,0.16),
+            inset 0 1px 0 rgba(255,255,255,0.03);
+    }
+
+    .change-green {
+        color: #dffff0;
+        background: linear-gradient(180deg, rgba(0,72,45,0.95), rgba(0,110,70,0.88));
+        border: 1px solid rgba(49,240,149,0.24);
+    }
+
+    .change-red {
+        color: #ffe5ea;
+        background: linear-gradient(180deg, rgba(72,12,20,0.95), rgba(120,16,32,0.88));
+        border: 1px solid rgba(255,98,125,0.24);
+    }
+
+    .change-neutral {
+        color: #fff4d5;
+        background: linear-gradient(180deg, rgba(70,56,10,0.95), rgba(110,88,12,0.88));
+        border: 1px solid rgba(255,216,106,0.22);
+    }
+
+    .momentum-meter {
+        margin-top: 12px;
+        width: 100%;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.06);
+        overflow: hidden;
+        box-shadow: inset 0 4px 8px rgba(0,0,0,0.25);
+    }
+
+    .momentum-fill {
+        height: 100%;
+        border-radius: 999px;
+    }
+
+    .momentum-green {
+        background: linear-gradient(90deg, #17c964, #31f095);
+        box-shadow: 0 0 10px rgba(49,240,149,0.20);
+    }
+
+    .momentum-red {
+        background: linear-gradient(90deg, #ff627d, #ff8da1);
+        box-shadow: 0 0 10px rgba(255,98,125,0.18);
+    }
+
+    .momentum-gold {
+        background: linear-gradient(90deg, #ffca3a, #ffd86a);
+        box-shadow: 0 0 10px rgba(255,216,106,0.14);
+    }
+
     .hero-signal {
         font-size: 1.9rem;
         font-weight: 1000;
@@ -215,7 +316,7 @@ st.markdown("""
         gap: 10px;
         flex-wrap: wrap;
         margin-top: 8px;
-        margin-bottom: 10px;
+        margin-bottom: 4px;
     }
 
     .pill {
@@ -277,10 +378,15 @@ st.markdown("""
             inset 0 1px 0 rgba(255,255,255,0.02);
     }
 
+    .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
     .metric-card {
         border-radius: 16px;
         padding: 11px 12px;
-        margin-bottom: 8px;
         background: linear-gradient(180deg, rgba(18,27,45,0.98), rgba(10,16,28,0.98));
         border: 1px solid rgba(110,145,220,0.12);
         box-shadow:
@@ -395,11 +501,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------------------------------------
+# =========================================================
 # HELPERS
-# -------------------------------------------------
+# =========================================================
 def fmt(x):
     return f"{x:.2f}" if x is not None else "N/A"
+
+def safe_float(value, default=0.0):
+    try:
+        return float(value)
+    except Exception:
+        return default
 
 def tone_for_value(label: str):
     label = label.lower()
@@ -411,16 +523,13 @@ def tone_for_value(label: str):
         return "gold"
     return "blue"
 
-def metric_box(label: str, value: str, tone: str = "blue"):
-    st.markdown(
-        f"""
-        <div class="metric-card tone-{tone}">
-            <div class="metric-label">{label}</div>
-            <div class="metric-value">{value}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+def metric_card_html(label: str, value: str, tone: str = "blue"):
+    return f"""
+    <div class="metric-card tone-{tone}">
+        <div class="metric-label">{label}</div>
+        <div class="metric-value">{value}</div>
+    </div>
+    """
 
 def hero_price_class(bias):
     if bias == "BULLISH":
@@ -443,6 +552,13 @@ def bias_badge_class(bias):
         return "hero-bias bias-bear"
     return "hero-bias bias-neutral"
 
+def symbol_class(bias):
+    if bias == "BULLISH":
+        return "hero-symbol symbol-bull"
+    if bias == "BEARISH":
+        return "hero-symbol symbol-bear"
+    return "hero-symbol symbol-neutral"
+
 def pill_html(text: str, tone: str = "blue"):
     return f'<div class="pill pill-{tone}">{text}</div>'
 
@@ -456,9 +572,48 @@ def feed_tone(text: str):
         return "gold"
     return "blue"
 
-# -------------------------------------------------
+def get_price_box_class(bias):
+    if bias == "BULLISH":
+        return "price-box price-box-bull"
+    if bias == "BEARISH":
+        return "price-box price-box-bear"
+    return "price-box price-box-neutral"
+
+def get_change_class(change_pct: float):
+    if change_pct > 0:
+        return "daily-change change-green"
+    if change_pct < 0:
+        return "daily-change change-red"
+    return "daily-change change-neutral"
+
+def get_momentum_class(bias: str):
+    if bias == "BULLISH":
+        return "momentum-fill momentum-green"
+    if bias == "BEARISH":
+        return "momentum-fill momentum-red"
+    return "momentum-fill momentum-gold"
+
+def calc_day_change(df):
+    if df is None or df.empty or "Close" not in df.columns:
+        return None, None
+
+    closes = df["Close"].dropna()
+    if len(closes) < 2:
+        return None, None
+
+    last_price = safe_float(closes.iloc[-1])
+    prev_close = safe_float(closes.iloc[0])
+
+    if prev_close == 0:
+        return None, None
+
+    change = last_price - prev_close
+    pct = (change / prev_close) * 100
+    return change, pct
+
+# =========================================================
 # SIDEBAR
-# -------------------------------------------------
+# =========================================================
 with st.sidebar:
     st.markdown("## Command Controls")
     selected_ticker = st.selectbox("Primary Ticker", ["SPY", "QQQ", "IWM", "DIA", "AAPL", "NVDA", "TSLA"], index=0)
@@ -474,9 +629,9 @@ tickers = [selected_ticker]
 if show_secondary and secondary_ticker != selected_ticker:
     tickers.append(secondary_ticker)
 
-# -------------------------------------------------
+# =========================================================
 # PAGE HEADER
-# -------------------------------------------------
+# =========================================================
 primary_sig = generate_signal(selected_ticker, interval=interval)
 
 st.markdown('<div class="cc-title">Lockout Signals • Command Center</div>', unsafe_allow_html=True)
@@ -488,7 +643,10 @@ if "error" not in primary_sig:
         pill_html(f"Session: {primary_sig['session_status']}", "blue"),
         pill_html(f"State: {primary_sig['market_state']}", "blue"),
         pill_html(f"Conviction: {primary_sig['conviction']}", "gold"),
-        pill_html(f"Live Price: {primary_sig['price']:.2f}", "green" if primary_sig["bias"] == "BULLISH" else "red" if primary_sig["bias"] == "BEARISH" else "gold"),
+        pill_html(
+            f"Live Price: {primary_sig['price']:.2f}",
+            "green" if primary_sig["bias"] == "BULLISH" else "red" if primary_sig["bias"] == "BEARISH" else "gold"
+        ),
     ]
     st.markdown(f'<div class="top-rail">{"".join(top_pills)}</div>', unsafe_allow_html=True)
 
@@ -522,9 +680,9 @@ with refresh_col:
 with note_col:
     st.markdown('<div class="small-note">Opening Range logic becomes strongest after 9:35 AM ET.</div>', unsafe_allow_html=True)
 
-# -------------------------------------------------
+# =========================================================
 # SYMBOL DECKS
-# -------------------------------------------------
+# =========================================================
 for ticker in tickers:
     sig = generate_signal(ticker, interval=interval)
 
@@ -535,9 +693,23 @@ for ticker in tickers:
         st.markdown("</div>", unsafe_allow_html=True)
         continue
 
-    # HERO
+    # get daily % from chart data for hero
+    df_day = get_data(ticker, interval=interval)
+    day_change, day_change_pct = calc_day_change(df_day)
+
+    if day_change_pct is None:
+        day_change_text = "Day N/A"
+    else:
+        sign = "+" if day_change_pct >= 0 else ""
+        day_change_text = f"{sign}{day_change_pct:.2f}%"
+
+    momentum_width = max(8, min(int(sig["pressure"]), 100))
+
     hero_pills = [
-        pill_html(f"🎯 {sig['bias']}", "green" if sig["bias"] == "BULLISH" else "red" if sig["bias"] == "BEARISH" else "gold"),
+        pill_html(
+            f"🎯 {sig['bias']}",
+            "green" if sig["bias"] == "BULLISH" else "red" if sig["bias"] == "BEARISH" else "gold"
+        ),
         pill_html(f"🛰 {sig['market_state']}", "blue"),
         pill_html(f"📊 SCORE {sig['pressure']}/100", "gold"),
         pill_html(f"🔥 {sig['heat']}", "gold"),
@@ -546,23 +718,24 @@ for ticker in tickers:
     hero_html = f"""
     <div class="hero">
         <div class="hero-top">
-            <div>
-                <div class="hero-symbol">{ticker} • {interval} Tactical Brain</div>
-                <div class="{hero_price_class(sig['bias'])}">{sig['price']:.2f}</div>
-            </div>
+            <div class="{symbol_class(sig['bias'])}">{ticker} • {interval} Tactical Brain</div>
             <div class="{bias_badge_class(sig['bias'])}">{sig['bias']}</div>
+        </div>
+
+        <div class="{get_price_box_class(sig['bias'])}">
+            <div class="price-row">
+                <div class="{hero_price_class(sig['bias'])}">{sig['price']:.2f}</div>
+                <div class="{get_change_class(day_change_pct if day_change_pct is not None else 0)}">{day_change_text}</div>
+            </div>
+            <div class="momentum-meter">
+                <div class="{get_momentum_class(sig['bias'])}" style="width:{momentum_width}%;"></div>
+            </div>
         </div>
 
         <div class="{hero_signal_class(sig['bias'])}">{sig['signal']}</div>
 
         <div class="pill-row">
             {''.join(hero_pills)}
-        </div>
-
-        <div class="pill-row">
-            {pill_html(f'Likely Up {sig["likely_up"]:.2f}', "green")}
-            {pill_html(f'Warning {sig["warning_line"]:.2f}', "gold")}
-            {pill_html(f'Invalid {sig["invalidation"]:.2f}', "red")}
         </div>
     </div>
     """
@@ -574,16 +747,20 @@ for ticker in tickers:
     with left:
         st.markdown('<div class="section-pill">Bias + Structure</div>', unsafe_allow_html=True)
         st.markdown('<div class="panel-sunken">', unsafe_allow_html=True)
-        metric_box("Bias", sig["bias"], "green" if sig["bias"] == "BULLISH" else "red" if sig["bias"] == "BEARISH" else "gold")
-        metric_box("Signal", sig["signal"], "blue")
-        metric_box("Market State", sig["market_state"], "blue")
-        metric_box("RSI", f"{sig['rsi']:.2f}", "blue")
-        metric_box("EMA9", fmt(sig["ema9"]), "blue")
-        if "ema20" in sig:
-            metric_box("EMA20", fmt(sig["ema20"]), "blue")
-        metric_box("VWAP", fmt(sig["vwap"]), "gold")
-        metric_box("Session", sig["session_status"], "blue")
-        metric_box("Conviction", sig["conviction"], "gold")
+
+        structure_cards = "".join([
+            metric_card_html("Bias", sig["bias"], "green" if sig["bias"] == "BULLISH" else "red" if sig["bias"] == "BEARISH" else "gold"),
+            metric_card_html("Signal", sig["signal"], "blue"),
+            metric_card_html("Market State", sig["market_state"], "blue"),
+            metric_card_html("RSI", f"{sig['rsi']:.2f}", "blue"),
+            metric_card_html("EMA9", fmt(sig["ema9"]), "blue"),
+            metric_card_html("EMA20", fmt(sig["ema20"]) if "ema20" in sig else "N/A", "blue"),
+            metric_card_html("VWAP", fmt(sig["vwap"]), "gold"),
+            metric_card_html("Session", sig["session_status"], "blue"),
+            metric_card_html("Conviction", sig["conviction"], "gold"),
+        ])
+
+        st.markdown(f'<div class="metric-grid">{structure_cards}</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="section-pill">Rolling Feed</div>', unsafe_allow_html=True)
@@ -594,25 +771,35 @@ for ticker in tickers:
         st.markdown('</div>', unsafe_allow_html=True)
 
     with right:
-        st.markdown('<div class="section-pill">Battle Zones</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-pill">Battle Zones + Targets</div>', unsafe_allow_html=True)
         st.markdown('<div class="panel-sunken">', unsafe_allow_html=True)
-        metric_box("Calls Favored Above", fmt(sig["calls_favored_above"]), "green")
-        metric_box("Puts Favored Below", fmt(sig["puts_favored_below"]), "red")
-        metric_box("Chop Zone", f"{sig['chop_low']:.2f} - {sig['chop_high']:.2f}", "gold")
-        metric_box("Warning Line", fmt(sig["warning_line"]), "gold")
-        metric_box("Invalidation", fmt(sig["invalidation"]), "red")
-        metric_box("Likely Up", fmt(sig["likely_up"]), "green")
-        metric_box("Stretch Up", fmt(sig["stretch_up"]), "green")
-        metric_box("Likely Down", fmt(sig["likely_down"]), "red")
-        metric_box("Stretch Down", fmt(sig["stretch_down"]), "red")
+
+        battle_cards = "".join([
+            metric_card_html("Calls Favored Above", fmt(sig["calls_favored_above"]), "green"),
+            metric_card_html("Puts Favored Below", fmt(sig["puts_favored_below"]), "red"),
+            metric_card_html("Chop Zone", f"{sig['chop_low']:.2f} - {sig['chop_high']:.2f}", "gold"),
+            metric_card_html("Warning Line", fmt(sig["warning_line"]), "gold"),
+            metric_card_html("Invalidation", fmt(sig["invalidation"]), "red"),
+            metric_card_html("Likely Up", fmt(sig["likely_up"]), "green"),
+            metric_card_html("Stretch Up", fmt(sig["stretch_up"]), "green"),
+            metric_card_html("Likely Down", fmt(sig["likely_down"]), "red"),
+            metric_card_html("Stretch Down", fmt(sig["stretch_down"]), "red"),
+        ])
+
+        st.markdown(f'<div class="metric-grid">{battle_cards}</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="section-pill">Session Levels</div>', unsafe_allow_html=True)
         st.markdown('<div class="panel-sunken">', unsafe_allow_html=True)
-        metric_box("Premarket High", fmt(sig["pm_high"]), "blue")
-        metric_box("Premarket Low", fmt(sig["pm_low"]), "blue")
-        metric_box("OR High", fmt(sig["or_high"]), "blue")
-        metric_box("OR Low", fmt(sig["or_low"]), "blue")
+
+        session_cards = "".join([
+            metric_card_html("Premarket High", fmt(sig["pm_high"]), "blue"),
+            metric_card_html("Premarket Low", fmt(sig["pm_low"]), "blue"),
+            metric_card_html("OR High", fmt(sig["or_high"]), "blue"),
+            metric_card_html("OR Low", fmt(sig["or_low"]), "blue"),
+        ])
+
+        st.markdown(f'<div class="metric-grid">{session_cards}</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     # COMMENTARY
