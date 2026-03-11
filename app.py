@@ -2,7 +2,7 @@ import streamlit as st
 from agent import generate_signal, get_data, add_indicators
 
 st.set_page_config(
-    page_title="LOCKOUT NUCLEAR TERMINAL",
+    page_title="Lockout Signals Command Center",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -14,11 +14,11 @@ st.markdown("""
 <style>
     .stApp {
         background:
-            radial-gradient(circle at 12% 10%, rgba(0,255,170,0.12), transparent 18%),
-            radial-gradient(circle at 88% 10%, rgba(0,180,255,0.14), transparent 20%),
-            radial-gradient(circle at 50% 100%, rgba(255,0,120,0.08), transparent 24%),
-            linear-gradient(180deg, #010306 0%, #050b14 45%, #08111d 100%);
-        color: #f5fbff;
+            radial-gradient(circle at top left, rgba(0,255,180,0.08), transparent 22%),
+            radial-gradient(circle at top right, rgba(0,165,255,0.10), transparent 24%),
+            radial-gradient(circle at bottom center, rgba(255,0,128,0.06), transparent 25%),
+            linear-gradient(180deg, #020306 0%, #050913 40%, #07101a 100%);
+        color: #f4f8ff;
     }
 
     [data-testid="stHeader"] {
@@ -26,66 +26,73 @@ st.markdown("""
     }
 
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #08101c 0%, #0b1422 100%);
+        background: linear-gradient(180deg, #0a1220 0%, #0c1525 100%);
     }
 
-    .mega-title {
+    .page-title {
         font-size: 3rem;
         font-weight: 1000;
-        letter-spacing: 2px;
+        line-height: 1.02;
         color: #ffffff;
+        letter-spacing: 1px;
+        margin-bottom: 0.3rem;
         text-shadow:
-            0 0 10px rgba(0,255,255,0.25),
-            0 0 20px rgba(0,180,255,0.18),
-            0 0 32px rgba(0,255,170,0.10);
-        margin-bottom: 0.12rem;
-        line-height: 1.0;
+            0 0 12px rgba(255,255,255,0.06),
+            0 0 18px rgba(0,180,255,0.10);
     }
 
-    .mega-subtitle {
-        color: #9bc0ff;
-        font-size: 1.05rem;
+    .page-subtitle {
+        font-size: 1rem;
+        color: #9eb6dc;
         margin-bottom: 1rem;
     }
 
     .chip-row {
         display: flex;
-        flex-wrap: wrap;
         gap: 10px;
-        margin-bottom: 16px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
     }
 
     .chip {
-        background: linear-gradient(180deg, rgba(19,29,50,0.98), rgba(11,19,35,0.98));
-        border: 1px solid rgba(113,150,225,0.18);
-        color: #f1f8ff;
         padding: 9px 14px;
         border-radius: 999px;
+        background: linear-gradient(180deg, rgba(22,31,52,0.95), rgba(12,18,31,0.95));
+        border: 1px solid rgba(118,152,220,0.18);
+        color: #ecf4ff;
+        font-weight: 800;
         font-size: 0.82rem;
-        font-weight: 900;
-        box-shadow: 0 0 14px rgba(0,0,0,0.24);
+        box-shadow:
+            0 6px 18px rgba(0,0,0,0.24),
+            inset 0 1px 0 rgba(255,255,255,0.04);
     }
 
-    .marquee-wrap {
-        width: 100%;
+    .marquee-shell {
+        background: linear-gradient(180deg, rgba(10,18,31,0.98), rgba(11,20,36,0.98));
+        border: 1px solid rgba(90, 140, 255, 0.18);
+        border-radius: 18px;
         overflow: hidden;
-        white-space: nowrap;
-        border-radius: 16px;
-        background: linear-gradient(90deg, rgba(7,16,30,0.98), rgba(12,28,48,0.98));
-        border: 1px solid rgba(0, 195, 255, 0.25);
-        padding: 10px 0;
-        margin-bottom: 16px;
-        box-shadow: 0 0 24px rgba(0,0,0,0.30);
+        margin-bottom: 18px;
+        box-shadow:
+            0 10px 30px rgba(0,0,0,0.28),
+            inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
-    .marquee {
+    .marquee-track {
+        white-space: nowrap;
+        overflow: hidden;
+        padding: 12px 0;
+    }
+
+    .marquee-text {
         display: inline-block;
         padding-left: 100%;
-        animation: marquee 20s linear infinite;
-        color: #eff8ff;
+        animation: marquee 22s linear infinite;
         font-weight: 900;
-        font-size: 1rem;
+        color: #7cffc3;
+        font-size: 0.98rem;
         letter-spacing: 0.5px;
+        text-shadow: 0 0 12px rgba(0,255,180,0.14);
     }
 
     @keyframes marquee {
@@ -93,165 +100,208 @@ st.markdown("""
         100% { transform: translateX(-100%); }
     }
 
-    .signal-superbar {
-        background: linear-gradient(90deg, rgba(5,17,30,0.99), rgba(13,31,53,0.99));
-        border: 1px solid rgba(0, 194, 255, 0.22);
-        border-radius: 18px;
-        padding: 14px 16px;
-        margin-bottom: 20px;
-        box-shadow: 0 0 30px rgba(0,0,0,0.30);
-    }
-
-    .signal-superbar-title {
-        color: #62d7ff;
-        font-size: 0.78rem;
-        letter-spacing: 1.5px;
-        text-transform: uppercase;
-        font-weight: 900;
-        margin-bottom: 8px;
-    }
-
     .deck {
-        background: linear-gradient(180deg, rgba(8,15,28,0.96), rgba(10,18,31,0.96));
-        border: 1px solid rgba(95,131,205,0.16);
-        border-radius: 24px;
+        border-radius: 28px;
         padding: 18px;
-        margin-bottom: 22px;
+        margin-bottom: 24px;
+        background:
+            linear-gradient(180deg, rgba(11,18,31,0.98), rgba(7,13,23,0.98));
+        border: 1px solid rgba(96,126,194,0.18);
         box-shadow:
-            0 0 28px rgba(0,0,0,0.34),
-            inset 0 0 0 1px rgba(255,255,255,0.02);
+            0 16px 36px rgba(0,0,0,0.34),
+            inset 0 1px 0 rgba(255,255,255,0.03),
+            inset 0 -1px 0 rgba(255,255,255,0.02);
     }
 
     .deck-title {
         color: #ffffff;
-        font-size: 1.48rem;
+        font-size: 1.25rem;
         font-weight: 1000;
-        letter-spacing: 0.8px;
-        margin-bottom: 10px;
-    }
-
-    .top-hero {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 14px;
-        flex-wrap: wrap;
+        letter-spacing: 0.6px;
         margin-bottom: 12px;
-        padding: 14px 16px;
-        border-radius: 20px;
-        background: linear-gradient(180deg, rgba(12,21,38,0.98), rgba(8,15,27,0.98));
-        border: 1px solid rgba(120,160,240,0.12);
     }
 
-    .hero-left {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
+    .hero-shell {
+        border-radius: 26px;
+        padding: 20px 18px 18px 18px;
+        margin-bottom: 16px;
+        background:
+            radial-gradient(circle at top center, rgba(0,255,170,0.06), transparent 32%),
+            linear-gradient(180deg, rgba(18,27,46,0.98), rgba(9,15,26,0.98));
+        border: 1px solid rgba(98,129,194,0.20);
+        box-shadow:
+            0 18px 42px rgba(0,0,0,0.34),
+            inset 0 1px 0 rgba(255,255,255,0.04),
+            inset 0 -1px 0 rgba(255,255,255,0.02);
     }
 
-    .hero-symbol {
-        font-size: 2.35rem;
-        font-weight: 1000;
-        color: #ffffff;
-        letter-spacing: 1.5px;
-        line-height: 1;
-    }
-
-    .hero-price {
-        font-size: 3.15rem;
-        font-weight: 1000;
-        color: #ffffff;
-        line-height: 1;
-        text-shadow: 0 0 18px rgba(0,190,255,0.10);
-    }
-
-    .hero-bias-bull,
-    .hero-bias-bear,
-    .hero-bias-neutral {
-        padding: 12px 18px;
-        border-radius: 16px;
-        font-size: 1rem;
-        font-weight: 1000;
-        letter-spacing: 1px;
-        min-width: 180px;
+    .hero-topline {
+        color: #b5c8ea;
+        font-size: 0.85rem;
+        letter-spacing: 1.4px;
+        text-transform: uppercase;
+        font-weight: 800;
+        margin-bottom: 8px;
         text-align: center;
     }
 
-    .hero-bias-bull {
-        background: linear-gradient(135deg, rgba(0,77,46,0.98), rgba(7,116,67,0.88));
-        border: 1px solid rgba(55,255,166,0.40);
-        color: #ddffed;
-        box-shadow: 0 0 22px rgba(0,180,98,0.18);
-    }
-
-    .hero-bias-bear {
-        background: linear-gradient(135deg, rgba(84,8,22,0.98), rgba(153,15,42,0.88));
-        border: 1px solid rgba(255,91,121,0.38);
-        color: #ffe4e9;
-        box-shadow: 0 0 22px rgba(180,18,57,0.16);
-    }
-
-    .hero-bias-neutral {
-        background: linear-gradient(135deg, rgba(88,71,7,0.98), rgba(156,122,8,0.88));
-        border: 1px solid rgba(255,219,78,0.36);
-        color: #fff4cc;
-        box-shadow: 0 0 22px rgba(188,146,14,0.14);
-    }
-
-    .flash-bull {
-        background: linear-gradient(135deg, rgba(0,77,46,0.98), rgba(7,116,67,0.88));
-        border: 1px solid rgba(55,255,166,0.40);
-        border-radius: 18px;
-        padding: 15px;
-        margin: 10px 0 14px 0;
-        color: #ddffed;
+    .hero-price {
+        font-size: 4.0rem;
+        line-height: 1;
         font-weight: 1000;
-        box-shadow: 0 0 22px rgba(0,180,98,0.18);
+        text-align: center;
+        margin-bottom: 6px;
+        color: #ffffff;
+        text-shadow: 0 0 20px rgba(255,255,255,0.06);
     }
 
-    .flash-bear {
-        background: linear-gradient(135deg, rgba(84,8,22,0.98), rgba(153,15,42,0.88));
-        border: 1px solid rgba(255,91,121,0.38);
-        border-radius: 18px;
-        padding: 15px;
-        margin: 10px 0 14px 0;
-        color: #ffe4e9;
-        font-weight: 1000;
-        box-shadow: 0 0 22px rgba(180,18,57,0.16);
+    .hero-price-bull {
+        color: #31f095;
+        text-shadow:
+            0 0 14px rgba(49,240,149,0.20),
+            0 0 28px rgba(49,240,149,0.10);
     }
 
-    .flash-chop {
-        background: linear-gradient(135deg, rgba(88,71,7,0.98), rgba(156,122,8,0.88));
-        border: 1px solid rgba(255,219,78,0.36);
-        border-radius: 18px;
-        padding: 15px;
-        margin: 10px 0 14px 0;
-        color: #fff4cc;
+    .hero-price-bear {
+        color: #ff5b78;
+        text-shadow:
+            0 0 14px rgba(255,91,120,0.20),
+            0 0 28px rgba(255,91,120,0.10);
+    }
+
+    .hero-price-neutral {
+        color: #ffd45e;
+        text-shadow:
+            0 0 14px rgba(255,212,94,0.18),
+            0 0 28px rgba(255,212,94,0.08);
+    }
+
+    .hero-signal {
+        text-align: center;
+        font-size: 2rem;
         font-weight: 1000;
-        box-shadow: 0 0 22px rgba(188,146,14,0.14);
+        letter-spacing: 1px;
+        margin-bottom: 16px;
+    }
+
+    .hero-signal-bull { color: #31f095; }
+    .hero-signal-bear { color: #ff5b78; }
+    .hero-signal-neutral { color: #ffd45e; }
+
+    .pill-row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        justify-content: center;
+        margin-bottom: 12px;
+    }
+
+    .pill {
+        padding: 10px 16px;
+        border-radius: 999px;
+        font-weight: 900;
+        font-size: 0.92rem;
+        background: linear-gradient(180deg, rgba(20,29,49,0.96), rgba(12,18,30,0.96));
+        border: 1px solid rgba(114,149,220,0.18);
+        box-shadow:
+            0 10px 22px rgba(0,0,0,0.22),
+            inset 0 1px 0 rgba(255,255,255,0.03);
+    }
+
+    .pill-green {
+        color: #dfffee;
+        border-color: rgba(55,255,166,0.30);
+        box-shadow:
+            0 10px 22px rgba(0,0,0,0.22),
+            0 0 12px rgba(0,255,170,0.08),
+            inset 0 1px 0 rgba(255,255,255,0.03);
+    }
+
+    .pill-red {
+        color: #ffe5ea;
+        border-color: rgba(255,91,121,0.28);
+        box-shadow:
+            0 10px 22px rgba(0,0,0,0.22),
+            0 0 12px rgba(255,91,121,0.08),
+            inset 0 1px 0 rgba(255,255,255,0.03);
+    }
+
+    .pill-gold {
+        color: #fff3cc;
+        border-color: rgba(255,219,78,0.25);
+        box-shadow:
+            0 10px 22px rgba(0,0,0,0.22),
+            0 0 12px rgba(255,219,78,0.06),
+            inset 0 1px 0 rgba(255,255,255,0.03);
+    }
+
+    .expected-block {
+        text-align: center;
+        margin-top: 8px;
+        margin-bottom: 8px;
+    }
+
+    .expected-title {
+        color: #b3c5e5;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 1.3px;
+        font-weight: 900;
+        margin-bottom: 8px;
+    }
+
+    .expected-line {
+        font-size: 1rem;
+        font-weight: 900;
+        color: #f5fbff;
+        line-height: 1.4;
+    }
+
+    .expected-green { color: #33ef98; }
+    .expected-red { color: #ff6e88; }
+    .expected-gold { color: #ffd76a; }
+
+    .subtext {
+        text-align: center;
+        color: #c7d5eb;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        margin-top: 10px;
     }
 
     .section-label {
         color: #88b1ff;
         font-size: 0.78rem;
         text-transform: uppercase;
-        letter-spacing: 1.4px;
+        letter-spacing: 1.3px;
         font-weight: 1000;
         margin: 8px 0 8px 0;
     }
 
+    .sunken-wrap {
+        border-radius: 20px;
+        padding: 12px;
+        background: linear-gradient(180deg, rgba(5,9,16,0.98), rgba(8,14,24,0.98));
+        border: 1px solid rgba(64, 89, 142, 0.16);
+        box-shadow:
+            inset 0 10px 18px rgba(0,0,0,0.34),
+            inset 0 1px 0 rgba(255,255,255,0.02);
+    }
+
     .metric-card {
-        background: linear-gradient(180deg, rgba(14,23,42,0.98), rgba(9,17,30,0.98));
-        border: 1px solid rgba(120,160,240,0.12);
+        background: linear-gradient(180deg, rgba(18,27,45,0.98), rgba(10,16,28,0.98));
+        border: 1px solid rgba(110,145,220,0.12);
         border-radius: 16px;
-        padding: 12px 13px;
+        padding: 10px 12px;
         margin-bottom: 8px;
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.01);
+        box-shadow:
+            0 10px 20px rgba(0,0,0,0.22),
+            inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
     .metric-label {
-        color: #8ba7d6;
-        font-size: 0.70rem;
+        color: #8da6d3;
+        font-size: 0.68rem;
         text-transform: uppercase;
         letter-spacing: 1px;
         margin-bottom: 4px;
@@ -260,88 +310,56 @@ st.markdown("""
 
     .metric-value {
         color: #ffffff;
-        font-size: 1.06rem;
+        font-size: 1.02rem;
         font-weight: 1000;
-        line-height: 1.1;
     }
 
-    .mini-card-blue,
-    .mini-card-green,
-    .mini-card-red,
-    .mini-card-gold {
+    .metric-green .metric-value { color: #33ef98; }
+    .metric-red .metric-value { color: #ff6e88; }
+    .metric-gold .metric-value { color: #ffd76a; }
+    .metric-blue .metric-value { color: #91c9ff; }
+
+    .feed-item {
+        background: linear-gradient(180deg, rgba(17,25,42,0.96), rgba(10,16,28,0.96));
+        border: 1px solid rgba(100,132,199,0.12);
         border-radius: 14px;
-        padding: 10px 12px;
-        margin-bottom: 8px;
-    }
-
-    .mini-card-blue {
-        background: linear-gradient(180deg, rgba(18,31,56,0.96), rgba(11,20,36,0.96));
-        border: 1px solid rgba(86, 179, 255, 0.20);
-    }
-
-    .mini-card-green {
-        background: linear-gradient(180deg, rgba(0,62,39,0.95), rgba(0,105,68,0.88));
-        border: 1px solid rgba(55,255,166,0.24);
-    }
-
-    .mini-card-red {
-        background: linear-gradient(180deg, rgba(70,10,18,0.95), rgba(130,18,35,0.88));
-        border: 1px solid rgba(255,91,121,0.24);
-    }
-
-    .mini-card-gold {
-        background: linear-gradient(180deg, rgba(72,58,8,0.95), rgba(126,99,11,0.88));
-        border: 1px solid rgba(255,219,78,0.24);
-    }
-
-    .mini-title {
-        font-size: 0.66rem;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-weight: 900;
-        opacity: 0.9;
-        margin-bottom: 3px;
-    }
-
-    .mini-value {
-        font-size: 1rem;
-        font-weight: 1000;
-        color: #ffffff;
+        padding: 9px 11px;
+        margin-bottom: 7px;
+        color: #edf5ff;
+        font-size: 0.88rem;
+        font-weight: 800;
+        box-shadow:
+            0 10px 18px rgba(0,0,0,0.18),
+            inset 0 1px 0 rgba(255,255,255,0.02);
     }
 
     .commentary-box {
-        background: linear-gradient(180deg, rgba(12,22,38,0.98), rgba(10,17,30,0.98));
+        background: linear-gradient(180deg, rgba(14,24,40,0.98), rgba(9,15,26,0.98));
         border-left: 5px solid #43c2ff;
-        border-radius: 12px;
+        border-radius: 14px;
         padding: 14px;
         color: #e1ecff;
         line-height: 1.55;
-        margin-top: 8px;
-    }
-
-    .feed-item {
-        background: linear-gradient(180deg, rgba(12,20,35,0.94), rgba(10,17,30,0.94));
-        border: 1px solid rgba(96,131,198,0.12);
-        border-radius: 12px;
-        padding: 10px 12px;
-        margin-bottom: 8px;
-        color: #eff6ff;
-        font-size: 0.90rem;
-        font-weight: 700;
+        box-shadow:
+            0 12px 24px rgba(0,0,0,0.22),
+            inset 0 1px 0 rgba(255,255,255,0.02);
     }
 
     .small-note {
-        color: #7388af;
+        color: #748aad;
         font-size: 0.84rem;
     }
 
     div[data-testid="stButton"] > button {
-        border-radius: 14px;
-        border: 1px solid rgba(118,157,232,0.22);
-        background: linear-gradient(180deg, #14213c 0%, #0c1626 100%);
+        border-radius: 15px;
+        border: 1px solid rgba(118,157,232,0.20);
+        background: linear-gradient(180deg, #15213b 0%, #0d1728 100%);
         color: #f7fbff;
         font-weight: 1000;
-        padding: 0.56rem 1rem;
+        padding: 0.58rem 1rem;
+        box-shadow:
+            0 10px 18px rgba(0,0,0,0.18),
+            inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
     div[data-testid="stButton"] > button:hover {
@@ -360,10 +378,20 @@ st.markdown("""
 # -------------------------------------------------
 # HELPERS
 # -------------------------------------------------
-def metric_box(label: str, value: str):
+def fmt(x):
+    return f"{x:.2f}" if x is not None else "N/A"
+
+def metric_box(label: str, value: str, tone: str = "blue"):
+    tone_class = {
+        "green": "metric-green",
+        "red": "metric-red",
+        "gold": "metric-gold",
+        "blue": "metric-blue",
+    }.get(tone, "metric-blue")
+
     st.markdown(
         f"""
-        <div class="metric-card">
+        <div class="metric-card {tone_class}">
             <div class="metric-label">{label}</div>
             <div class="metric-value">{value}</div>
         </div>
@@ -371,52 +399,32 @@ def metric_box(label: str, value: str):
         unsafe_allow_html=True
     )
 
-def mini_box(title: str, value: str, tone: str = "blue"):
-    cls = {
-        "blue": "mini-card-blue",
-        "green": "mini-card-green",
-        "red": "mini-card-red",
-        "gold": "mini-card-gold",
-    }.get(tone, "mini-card-blue")
-
-    st.markdown(
-        f"""
-        <div class="{cls}">
-            <div class="mini-title">{title}</div>
-            <div class="mini-value">{value}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-def fmt(x):
-    return f"{x:.2f}" if x is not None else "N/A"
-
-def bias_class(bias: str):
+def hero_price_class(bias):
     if bias == "BULLISH":
-        return "hero-bias-bull"
+        return "hero-price hero-price-bull"
     if bias == "BEARISH":
-        return "hero-bias-bear"
-    return "hero-bias-neutral"
+        return "hero-price hero-price-bear"
+    return "hero-price hero-price-neutral"
 
-def banner_html(sig):
-    price = sig["price"]
-    calls = sig["calls_favored_above"]
-    puts = sig["puts_favored_below"]
-    likely_up = sig["likely_up"]
-    likely_down = sig["likely_down"]
+def hero_signal_class(bias):
+    if bias == "BULLISH":
+        return "hero-signal hero-signal-bull"
+    if bias == "BEARISH":
+        return "hero-signal hero-signal-bear"
+    return "hero-signal hero-signal-neutral"
 
-    if price > calls:
-        return f'<div class="flash-bull">🚀 BULL CONTROL ACTIVE • CALLS FAVORED ABOVE {calls:.2f} • NEXT LIKELY PUSH {likely_up:.2f}</div>'
-    elif price < puts:
-        return f'<div class="flash-bear">🩸 BEAR CONTROL ACTIVE • PUTS FAVORED BELOW {puts:.2f} • NEXT LIKELY PUSH {likely_down:.2f}</div>'
-    return f'<div class="flash-chop">🟡 CHOP / NEUTRAL TAPE • ACTIVE BATTLE ZONE {puts:.2f} - {calls:.2f}</div>'
+def bias_tone(bias):
+    if bias == "BULLISH":
+        return "pill pill-green"
+    if bias == "BEARISH":
+        return "pill pill-red"
+    return "pill pill-gold"
 
 # -------------------------------------------------
 # SIDEBAR
 # -------------------------------------------------
 with st.sidebar:
-    st.markdown("## Nuclear Controls")
+    st.markdown("## Command Controls")
     selected_ticker = st.selectbox("Primary Ticker", ["SPY", "QQQ", "IWM", "DIA", "AAPL", "NVDA", "TSLA"], index=0)
     interval = st.selectbox("Timeframe", ["1m", "5m", "15m", "30m"], index=1)
     show_secondary = st.toggle("Show Secondary Ticker", value=True)
@@ -435,9 +443,9 @@ if show_secondary and secondary_ticker != selected_ticker:
 # -------------------------------------------------
 primary_sig = generate_signal(selected_ticker, interval=interval)
 
-st.markdown('<div class="mega-title">LOCKOUT SIGNALS • SPY NUCLEAR TERMINAL</div>', unsafe_allow_html=True)
+st.markdown('<div class="page-title">Lockout Signals • Command Center</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="mega-subtitle">Neon tape • condensed boxes • giant symbol and price • premium war-room build</div>',
+    '<div class="page-subtitle">Premium live terminal • raised cards • sunken panels • giant hero price • mobile-first</div>',
     unsafe_allow_html=True
 )
 
@@ -452,7 +460,7 @@ st.markdown(
         <div class="chip">Ticker: {selected_ticker}</div>
         <div class="chip">Timeframe: {interval}</div>
         <div class="chip">Session: {session_text}</div>
-        <div class="chip">Market State: {state_text}</div>
+        <div class="chip">State: {state_text}</div>
         <div class="chip">Conviction: {conviction_text}</div>
         <div class="chip">Live Price: {price_text}</div>
     </div>
@@ -461,36 +469,21 @@ st.markdown(
 )
 
 if "error" not in primary_sig:
-    tape_text = " ✦ ".join([
+    tape_text = " • ".join([
         f"{selected_ticker} {primary_sig['signal']}",
+        f"BIAS {primary_sig['bias']}",
         f"CALLS>{primary_sig['calls_favored_above']:.2f}",
         f"PUTS<{primary_sig['puts_favored_below']:.2f}",
         f"WARNING {primary_sig['warning_line']:.2f}",
-        f"INVALIDATION {primary_sig['invalidation']:.2f}",
-        f"LIKELY UP {primary_sig['likely_up']:.2f}",
-        f"LIKELY DOWN {primary_sig['likely_down']:.2f}",
+        f"INVALID {primary_sig['invalidation']:.2f}",
         f"STATE {primary_sig['market_state']}",
         f"HEAT {primary_sig['heat']}",
     ])
     st.markdown(
         f"""
-        <div class="marquee-wrap">
-            <div class="marquee">⚡ {tape_text} ⚡ {tape_text}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        f"""
-        <div class="signal-superbar">
-            <div class="signal-superbar-title">Primary Signal Command Line</div>
-            <div>
-                🚨 {primary_sig['signal']} &nbsp;&nbsp;|&nbsp;&nbsp;
-                ⚠ Warning {primary_sig['warning_line']:.2f} &nbsp;&nbsp;|&nbsp;&nbsp;
-                🛑 Invalidation {primary_sig['invalidation']:.2f} &nbsp;&nbsp;|&nbsp;&nbsp;
-                🎯 Likely Up {primary_sig['likely_up']:.2f} &nbsp;&nbsp;|&nbsp;&nbsp;
-                🎯 Likely Down {primary_sig['likely_down']:.2f}
+        <div class="marquee-shell">
+            <div class="marquee-track">
+                <div class="marquee-text">⚡ {tape_text} ⚡ {tape_text}</div>
             </div>
         </div>
         """,
@@ -502,7 +495,7 @@ with refresh_col:
     if st.button("Refresh Now"):
         st.rerun()
 with note_col:
-    st.markdown('<div class="small-note">Opening Range logic is strongest after 9:35 AM ET.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="small-note">Opening Range logic becomes strongest after 9:35 AM ET.</div>', unsafe_allow_html=True)
 
 # -------------------------------------------------
 # DECKS
@@ -511,80 +504,94 @@ for ticker in tickers:
     sig = generate_signal(ticker, interval=interval)
 
     st.markdown('<div class="deck">', unsafe_allow_html=True)
-    st.markdown(f'<div class="deck-title">{ticker} Tactical Deck</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="deck-title">{ticker}</div>', unsafe_allow_html=True)
 
     if "error" in sig:
         st.error(sig["error"])
         st.markdown("</div>", unsafe_allow_html=True)
         continue
 
-    # BIG HERO TOP
+    # HERO
     st.markdown(
         f"""
-        <div class="top-hero">
-            <div class="hero-left">
-                <div class="hero-symbol">{ticker}</div>
-                <div class="hero-price">${sig['price']:.2f}</div>
+        <div class="hero-shell">
+            <div class="hero-topline">{ticker} • {interval} tactical brain</div>
+            <div class="{hero_price_class(sig['bias'])}">{sig['price']:.2f}</div>
+            <div class="{hero_signal_class(sig['bias'])}">{sig['signal']}</div>
+
+            <div class="pill-row">
+                <div class="{bias_tone(sig['bias'])}">🎯 {sig['bias']}</div>
+                <div class="pill pill-green">🛰 {sig['market_state']}</div>
+                <div class="pill pill-gold">📊 SCORE: {sig['pressure']}/100</div>
+                <div class="pill pill-gold">🔥 {sig['heat']}</div>
             </div>
-            <div class="{bias_class(sig['bias'])}">{sig['bias']}</div>
+
+            <div class="expected-block">
+                <div class="expected-title">Expected Move (from here)</div>
+                <div class="expected-line">
+                    <span class="expected-green">LIKELY {sig['likely_up']:.2f}</span>
+                    &nbsp;&nbsp;|&nbsp;&nbsp;
+                    <span class="expected-gold">WARNING {sig['warning_line']:.2f}</span>
+                    &nbsp;&nbsp;|&nbsp;&nbsp;
+                    <span class="expected-red">INVALID {sig['invalidation']:.2f}</span>
+                </div>
+            </div>
+
+            <div class="subtext">{sig["commentary"]}</div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    st.markdown(banner_html(sig), unsafe_allow_html=True)
-
-    # QUICK READ ROW
-    q1, q2, q3, q4 = st.columns(4)
-    with q1:
-        mini_box("Signal", sig["signal"], "blue")
-    with q2:
-        mini_box("State", sig["market_state"], "blue")
-    with q3:
-        mini_box("Heat", sig["heat"], "green" if sig["heat"] == "HOT" else "gold")
-    with q4:
-        mini_box("Conviction", sig["conviction"], "green" if "HIGH" in sig["conviction"] else "gold")
-
-    # CONDENSED MAIN GRID
+    # MID LAYOUT
     left, middle, right = st.columns([1, 1, 1])
 
     with left:
-        st.markdown('<div class="section-label">Core Tape</div>', unsafe_allow_html=True)
-        mini_box("RSI", f"{sig['rsi']:.2f}", "blue")
-        mini_box("EMA9", fmt(sig["ema9"]), "blue")
+        st.markdown('<div class="section-label">Bias + Structure</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sunken-wrap">', unsafe_allow_html=True)
+        metric_box("Bias", sig["bias"], "green" if sig["bias"] == "BULLISH" else "red" if sig["bias"] == "BEARISH" else "gold")
+        metric_box("Signal", sig["signal"], "blue")
+        metric_box("Market State", sig["market_state"], "blue")
+        metric_box("RSI", f"{sig['rsi']:.2f}", "blue")
+        metric_box("EMA9", fmt(sig["ema9"]), "blue")
         if "ema20" in sig:
-            mini_box("EMA20", fmt(sig["ema20"]), "blue")
-        mini_box("VWAP", fmt(sig["vwap"]), "gold")
-        mini_box("Pressure", f"{sig['pressure']}/100", "blue")
+            metric_box("EMA20", fmt(sig["ema20"]), "blue")
+        metric_box("VWAP", fmt(sig["vwap"]), "gold")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with middle:
         st.markdown('<div class="section-label">Battle Zones</div>', unsafe_allow_html=True)
-        mini_box("Calls Above", fmt(sig["calls_favored_above"]), "green")
-        mini_box("Puts Below", fmt(sig["puts_favored_below"]), "red")
-        mini_box("Chop Zone", f"{sig['chop_low']:.2f} - {sig['chop_high']:.2f}", "gold")
-        mini_box("Warning", fmt(sig["warning_line"]), "gold")
-        mini_box("Invalidation", fmt(sig["invalidation"]), "red")
+        st.markdown('<div class="sunken-wrap">', unsafe_allow_html=True)
+        metric_box("Calls Favored Above", fmt(sig["calls_favored_above"]), "green")
+        metric_box("Puts Favored Below", fmt(sig["puts_favored_below"]), "red")
+        metric_box("Chop Zone", f"{sig['chop_low']:.2f} - {sig['chop_high']:.2f}", "gold")
+        metric_box("Warning Line", fmt(sig["warning_line"]), "gold")
+        metric_box("Invalidation", fmt(sig["invalidation"]), "red")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with right:
         st.markdown('<div class="section-label">Targets + Session</div>', unsafe_allow_html=True)
-        mini_box("Likely Up", fmt(sig["likely_up"]), "green")
-        mini_box("Stretch Up", fmt(sig["stretch_up"]), "green")
-        mini_box("Likely Down", fmt(sig["likely_down"]), "red")
-        mini_box("Stretch Down", fmt(sig["stretch_down"]), "red")
-        mini_box("Session", sig["session_status"], "blue")
+        st.markdown('<div class="sunken-wrap">', unsafe_allow_html=True)
+        metric_box("Likely Up", fmt(sig["likely_up"]), "green")
+        metric_box("Stretch Up", fmt(sig["stretch_up"]), "green")
+        metric_box("Likely Down", fmt(sig["likely_down"]), "red")
+        metric_box("Stretch Down", fmt(sig["stretch_down"]), "red")
+        metric_box("Session", sig["session_status"], "blue")
+        metric_box("Conviction", sig["conviction"], "blue")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # SECONDARY CONDENSED ROW
+    # SESSION LEVELS
     s1, s2, s3, s4 = st.columns(4)
     with s1:
-        mini_box("Premarket High", fmt(sig["pm_high"]), "blue")
+        metric_box("Premarket High", fmt(sig["pm_high"]), "blue")
     with s2:
-        mini_box("Premarket Low", fmt(sig["pm_low"]), "blue")
+        metric_box("Premarket Low", fmt(sig["pm_low"]), "blue")
     with s3:
-        mini_box("OR High", fmt(sig["or_high"]), "blue")
+        metric_box("OR High", fmt(sig["or_high"]), "blue")
     with s4:
-        mini_box("OR Low", fmt(sig["or_low"]), "blue")
+        metric_box("OR Low", fmt(sig["or_low"]), "blue")
 
-    # ROLLING FEED + COMMENTARY
+    # FEED + COMMENTARY
     feed_col, comm_col = st.columns([1, 2])
 
     with feed_col:
@@ -593,7 +600,7 @@ for ticker in tickers:
             st.markdown(f'<div class="feed-item">{item}</div>', unsafe_allow_html=True)
 
     with comm_col:
-        st.markdown('<div class="section-label">AI Commentary</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Commentary</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="commentary-box">{sig["commentary"]}</div>', unsafe_allow_html=True)
 
     with st.expander(f"Open {ticker} Chart Deck"):
