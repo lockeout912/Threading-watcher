@@ -414,12 +414,12 @@ with price_left:
         unsafe_allow_html=True
     )
 with price_right:
-    st.markdown(
-        f"""
-        <div class="mode-chip {'green' if mode == 'Aggressive' else 'gold'}">{mode.upper()}</div>
-        """,
-        unsafe_allow_html=True
-    )
+        st.markdown(
+            f"""
+            <div class="mode-chip {'green' if mode == 'Aggressive' else 'gold'}">{mode.upper()}</div>
+            """,
+            unsafe_allow_html=True
+        )
 st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown(
@@ -457,7 +457,7 @@ with left:
     with a2:
         st.metric("State", safe_get(sig, "market_state", safe_get(sig, "regime", "N/A")))
         st.metric("EMA20", fmt_num(safe_get(sig, "ema20")))
-        st.metric("Session", safe_get(sig, "session_status", "N/A")))
+        st.metric("Session", safe_get(sig, "session_status", "N/A"))
         st.metric("Price", fmt_num(safe_get(sig, "price")))
 
     st.markdown('</div>', unsafe_allow_html=True)
