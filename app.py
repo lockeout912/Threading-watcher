@@ -204,10 +204,6 @@ st.markdown("""
         font-size: 0.82rem;
     }
 
-    .divider-space {
-        height: 8px;
-    }
-
     div[data-testid="stMetric"] {
         background: linear-gradient(180deg, rgba(15,24,40,0.98), rgba(9,16,28,0.98));
         border: 1px solid rgba(101,139,215,0.14);
@@ -342,7 +338,14 @@ control1, control2 = st.columns([2, 2])
 with control1:
     selected_ticker = st.selectbox(
         "Select Ticker",
-        ["SPY", "QQQ", "IWM", "DIA", "AAPL", "NVDA", "TSLA", "MSTR", "AMD"],
+        [
+            "SPY", "QQQ", "IWM", "DIA",
+            "AAPL", "NVDA", "TSLA", "AMD", "META",
+            "AMZN", "MSFT", "GOOGL", "NFLX", "PLTR",
+            "MSTR", "COIN", "SOFI", "HOOD", "INTC",
+            "MU", "AVGO", "SMCI", "ARM", "BABA",
+            "XOM", "OXY", "USO"
+        ],
         index=0
     )
 with control2:
@@ -454,7 +457,7 @@ with left:
     with a2:
         st.metric("State", safe_get(sig, "market_state", safe_get(sig, "regime", "N/A")))
         st.metric("EMA20", fmt_num(safe_get(sig, "ema20")))
-        st.metric("Session", safe_get(sig, "session_status", "N/A"))
+        st.metric("Session", safe_get(sig, "session_status", "N/A")))
         st.metric("Price", fmt_num(safe_get(sig, "price")))
 
     st.markdown('</div>', unsafe_allow_html=True)
