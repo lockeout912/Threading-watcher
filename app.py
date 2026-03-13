@@ -341,7 +341,7 @@ with control1:
         [
             "SPY", "QQQ", "IWM", "DIA",
             "AAPL", "NVDA", "TSLA", "AMD", "META",
-            "AMZN", "MSFT", "GOOGL", "NFLX", "PLTR",
+            "AMZN", "MSFT", "NBIS", "NFLX", "PLTR",
             "MSTR", "COIN", "SOFI", "HOOD", "INTC",
             "MU", "AVGO", "SMCI", "ARM", "BABA",
             "XOM", "OXY", "USO"
