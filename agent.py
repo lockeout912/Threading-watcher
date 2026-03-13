@@ -456,3 +456,258 @@ def generate_signal(ticker: str = "SPY", interval: str = "5m") -> dict:
     except Exception as e:
         print(f"generate_signal error for {ticker}: {e}")
         return {"error": f"Signal error: {str(e)}"}
+
+
+# ============================================================
+# SCANNER + ALERTS LAYER (APP-SAFE) ✅ DOES NOT TOUCH THE BRAIN
+# ============================================================
+
+DEFAULT_WATCHLIST = [
+    "SPY", "QQQ", "IWM", "DIA",
+    "AAPL", "NVDA", "TSLA", "AMD", "META",
+    "AMZN", "MSFT", "NFLX", "PLTR",
+    "MSTR", "COIN", "SOFI", "HOOD",
+    "XOM", "OXY", "USO",
+]
+
+
+class AlertState:
+    """
+    Minimal in-memory state so alerts only fire on changes/crossings.
+    In Streamlit you can keep one of these in st.session_state.
+    """
+    def __init__(self):
+        self.last = {}  # ticker -> snapshot dict
+        self.last_sent_at = {}  # (ticker, alert_type) -> epoch seconds
+
+    def get(self, ticker: str) -> dict | None:
+        return self.last.get(ticker)
+
+    def set(self, ticker: str, snap: dict):
+        self.last[ticker] = snap
+
+    def can_send(self, ticker: str, alert_type: str, cooldown_sec: int) -> bool:
+        key = (ticker, alert_type)
+        now = time.time()
+        last_time = self.last_sent_at.get(key, 0)
+        if now - last_time >= cooldown_sec:
+            self.last_sent_at[key] = now
+            return True
+        return False
+
+
+def _snapshot(sig: dict) -> dict:
+    """Create a tiny comparable snapshot (so we don't store huge objects)."""
+    return {
+        "price": float(sig.get("price", 0) or 0),
+        "market_state": str(sig.get("market_state", "")),
+        "bias": str(sig.get("bias", "")),
+        "pressure": int(sig.get("pressure", 0) or 0),
+        "calls_favored_above": float(sig.get("calls_favored_above", 0) or 0),
+        "puts_favored_below": float(sig.get("puts_favored_below", 0) or 0),
+        "warning_line": float(sig.get("warning_line", 0) or 0),
+        "signal": str(sig.get("signal", "")),
+        "session_status": str(sig.get("session_status", "")),
+        "conviction": str(sig.get("conviction", "")),
+        "heat": str(sig.get("heat", "")),
+    }
+
+
+def _crossed_up(prev_price: float, price: float, level: float) -> bool:
+    if level is None:
+        return False
+    return prev_price <= level < price
+
+
+def _crossed_down(prev_price: float, price: float, level: float) -> bool:
+    if level is None:
+        return False
+    return prev_price >= level > price
+
+
+def evaluate_alerts(
+    sig: dict,
+    prev_snap: dict | None,
+    *,
+    cooldown_sec: int = 300
+) -> list[dict]:
+    """
+    Returns a list of alert events (dicts). Designed to be simple and safe.
+    """
+    if not sig or "error" in sig:
+        return []
+
+    ticker = sig.get("ticker", "UNKNOWN")
+    snap = _snapshot(sig)
+
+    alerts: list[dict] = []
+
+    # First run: no previous snapshot, don't spam alerts
+    if not prev_snap:
+        return alerts
+
+    prev_price = float(prev_snap.get("price", 0) or 0)
+    price = snap["price"]
+
+    prev_state = str(prev_snap.get("market_state", ""))
+    state = snap["market_state"]
+
+    prev_pressure = int(prev_snap.get("pressure", 0) or 0)
+    pressure = snap["pressure"]
+
+    calls = snap["calls_favored_above"]
+    puts = snap["puts_favored_below"]
+    warning = snap["warning_line"]
+
+    # 1) State change alerts (big ones)
+    if state != prev_state:
+        if "BULL BREAKOUT" == state:
+            alerts.append({
+                "ticker": ticker,
+                "type": "STATE_BULL_BREAKOUT",
+                "title": f"{ticker} BULL BREAKOUT",
+                "message": f"State flipped to BULL BREAKOUT. Price {price:.2f} above OR/VWAP trigger. Calls favored above {calls:.2f}.",
+                "cooldown_sec": cooldown_sec,
+            })
+        elif "BEAR BREAKOUT" == state:
+            alerts.append({
+                "ticker": ticker,
+                "type": "STATE_BEAR_BREAKOUT",
+                "title": f"{ticker} BEAR BREAKOUT",
+                "message": f"State flipped to BEAR BREAKOUT. Price {price:.2f} below OR/VWAP trigger. Puts favored below {puts:.2f}.",
+                "cooldown_sec": cooldown_sec,
+            })
+
+    # 2) Trigger-cross alerts (the practical “do something” pings)
+    if _crossed_up(prev_price, price, calls):
+        alerts.append({
+            "ticker": ticker,
+            "type": "CROSS_CALLS_ABOVE",
+            "title": f"{ticker} crossed CALLS trigger",
+            "message": f"Price crossed UP through Calls Favored Above {calls:.2f} → now {price:.2f}.",
+            "cooldown_sec": cooldown_sec,
+        })
+
+    if _crossed_down(prev_price, price, puts):
+        alerts.append({
+            "ticker": ticker,
+            "type": "CROSS_PUTS_BELOW",
+            "title": f"{ticker} crossed PUTS trigger",
+            "message": f"Price crossed DOWN through Puts Favored Below {puts:.2f} → now {price:.2f}.",
+            "cooldown_sec": cooldown_sec,
+        })
+
+    # 3) Warning-line reclaim/loss (chop + fakeout detector)
+    if warning and warning > 0:
+        if _crossed_up(prev_price, price, warning):
+            alerts.append({
+                "ticker": ticker,
+                "type": "CROSS_WARNING_UP",
+                "title": f"{ticker} reclaimed warning line",
+                "message": f"Price reclaimed warning line {warning:.2f} → now {price:.2f}.",
+                "cooldown_sec": cooldown_sec,
+            })
+        if _crossed_down(prev_price, price, warning):
+            alerts.append({
+                "ticker": ticker,
+                "type": "CROSS_WARNING_DOWN",
+                "title": f"{ticker} lost warning line",
+                "message": f"Price lost warning line {warning:.2f} → now {price:.2f}.",
+                "cooldown_sec": cooldown_sec,
+            })
+
+    # 4) Pressure spike (momentum pickup)
+    if prev_pressure < 70 <= pressure:
+        alerts.append({
+            "ticker": ticker,
+            "type": "PRESSURE_SPIKE",
+            "title": f"{ticker} pressure spike",
+            "message": f"Pressure crossed into HOT zone: {prev_pressure}/100 → {pressure}/100. Heat={snap['heat']} Conviction={snap['conviction']}.",
+            "cooldown_sec": cooldown_sec,
+        })
+
+    return alerts
+
+
+def scan_watchlist(
+    tickers: list[str] | None = None,
+    *,
+    interval: str = "5m",
+    state: AlertState | None = None,
+    per_ticker_delay_sec: float = 0.25,
+    cooldown_sec: int = 300
+) -> dict:
+    """
+    Runs generate_signal across a list and returns:
+      {
+        "signals": {ticker: sig_dict},
+        "alerts": [alert_event_dicts...]
+      }
+
+    This function DOES NOT change how generate_signal works.
+    It only orchestrates and compares snapshots.
+    """
+    if tickers is None:
+        tickers = DEFAULT_WATCHLIST
+
+    if state is None:
+        state = AlertState()
+
+    results: dict = {"signals": {}, "alerts": []}
+
+    for t in tickers:
+        t = str(t).upper().strip()
+        if not t:
+            continue
+
+        sig = generate_signal(t, interval=interval)
+        results["signals"][t] = sig
+
+        if "error" not in sig:
+            prev = state.get(t)
+            prev_snap = prev if prev else None
+            new_snap = _snapshot(sig)
+
+            # Evaluate
+            alert_events = evaluate_alerts(sig, prev_snap, cooldown_sec=cooldown_sec)
+
+            # Apply cooldown gating
+            gated = []
+            for ev in alert_events:
+                a_type = ev.get("type", "UNKNOWN")
+                a_cd = int(ev.get("cooldown_sec", cooldown_sec))
+                if state.can_send(t, a_type, a_cd):
+                    gated.append(ev)
+
+            results["alerts"].extend(gated)
+
+            # Store snapshot
+            state.set(t, new_snap)
+
+        time.sleep(per_ticker_delay_sec)
+
+    return results
+
+
+def send_webhook_alert(webhook_url: str, alert_event: dict) -> bool:
+    """
+    Simple generic webhook sender.
+    Works for many services if you adjust payload format.
+    """
+    try:
+        payload = {
+            "text": f"**{alert_event.get('title','ALERT')}**\n{alert_event.get('message','')}"
+        }
+        r = requests.post(webhook_url, json=payload, timeout=12)
+        r.raise_for_status()
+        return True
+    except Exception as e:
+        print(f"send_webhook_alert error: {e}")
+        return False
+
+
+def format_alert_compact(alert_event: dict) -> str:
+    ticker = alert_event.get("ticker", "UNK")
+    title = alert_event.get("title", "ALERT")
+    msg = alert_event.get("message", "")
+    return f"{ticker} | {title} — {msg}"
