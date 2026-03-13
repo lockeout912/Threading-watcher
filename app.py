@@ -1,5 +1,11 @@
 import math
+import time
+from datetime import datetime
+
+import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
+
 from agent import generate_signal, get_data, add_indicators
 
 st.set_page_config(
@@ -314,7 +320,6 @@ st.markdown(
         font-size: 0.78rem;
     }
 
-    /* Left stack cards (slightly beefier so they "fill" visually) */
     .pulse-card {
         border-radius: 14px;
         padding: 14px;
@@ -497,7 +502,7 @@ st.markdown(
         box-shadow:
             0 10px 18px rgba(0,0,0,0.16),
             inset 0 1px 0 rgba(255,255,255,0.03);
-        min-height: 240px;
+        min-height: 220px;
     }
 
     .commentary-title {
@@ -516,6 +521,48 @@ st.markdown(
         font-weight: 500;
         white-space: pre-wrap;
     }
+
+    .scan-shell {
+        background:
+            radial-gradient(circle at 10% 30%, rgba(77,240,165,0.06), transparent 45%),
+            linear-gradient(180deg, rgba(16,24,40,0.98), rgba(10,16,28,0.98));
+        border: 1px solid rgba(101,139,215,0.16);
+        border-radius: 16px;
+        padding: 14px;
+        margin-bottom: 12px;
+        box-shadow:
+            0 10px 18px rgba(0,0,0,0.16),
+            inset 0 1px 0 rgba(255,255,255,0.03);
+    }
+
+    .scan-title {
+        font-size: 0.72rem;
+        color: #8ea6d1;
+        font-weight: 1000;
+        letter-spacing: 1.1px;
+        text-transform: uppercase;
+        margin-bottom: 10px;
+    }
+
+    .alert-shell {
+        background:
+            radial-gradient(circle at 90% 20%, rgba(255,111,142,0.06), transparent 45%),
+            linear-gradient(180deg, rgba(16,24,40,0.98), rgba(10,16,28,0.98));
+        border: 1px solid rgba(101,139,215,0.16);
+        border-radius: 16px;
+        padding: 14px;
+        margin-bottom: 12px;
+        box-shadow:
+            0 10px 18px rgba(0,0,0,0.16),
+            inset 0 1px 0 rgba(255,255,255,0.03);
+    }
+
+    .alert-row {
+        padding: 7px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        font-size: 0.92rem;
+    }
+    .alert-row:last-child { border-bottom: none; }
 
     .rolling-item {
         padding: 6px 0;
@@ -573,6 +620,15 @@ st.markdown(
 )
 
 # -----------------------------
+# WATCHLIST
+# -----------------------------
+DEFAULT_WATCHLIST = [
+    "SPY","QQQ","IWM","DIA",
+    "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AMD","AVGO","NFLX","PLTR",
+    "COIN","MSTR","SMCI","ARM","INTC","MU","BA","JPM","XOM","OXY","USO"
+]
+
+# -----------------------------
 # HELPERS
 # -----------------------------
 def fmt_num(x):
@@ -617,7 +673,7 @@ def price_box_class(bias: str):
 
 def calc_day_change(df):
     try:
-        if df is None or df.empty or "Close" not in df.columns:
+        if df is None or getattr(df, "empty", True) or "Close" not in df.columns:
             return None, None
         closes = df["Close"].dropna()
         if len(closes) < 2:
@@ -639,7 +695,7 @@ def feed_colorize(items):
     out = []
     for item in items:
         t = str(item).lower()
-        if any(x in t for x in ["bull", "calls", "above", "surge", "long", "breakout"]):
+        if any(x in t for x in ["bull", "calls", "above", "surge", "long", "breakout", "volume surge"]):
             out.append(f'<span class="green">▲ {item}</span>')
         elif any(x in t for x in ["bear", "puts", "below", "breakdown", "short", "fade"]):
             out.append(f'<span class="red">▼ {item}</span>')
@@ -836,40 +892,159 @@ def build_commentary_box(text):
         unsafe_allow_html=True
     )
 
+def now_str():
+    return datetime.now().strftime("%H:%M:%S")
+
+def ensure_state():
+    if "watchlist" not in st.session_state:
+        st.session_state.watchlist = DEFAULT_WATCHLIST.copy()
+    if "scanner_rows" not in st.session_state:
+        st.session_state.scanner_rows = []
+    if "last_seen" not in st.session_state:
+        st.session_state.last_seen = {}
+    if "alerts" not in st.session_state:
+        st.session_state.alerts = []
+    if "last_scan_ts" not in st.session_state:
+        st.session_state.last_scan_ts = 0.0
+
+def push_alert(ticker: str, kind: str, msg: str):
+    st.session_state.alerts.insert(0, {"t": now_str(), "ticker": ticker, "kind": kind, "msg": msg})
+    st.session_state.alerts = st.session_state.alerts[:150]
+
+def make_snapshot(pack: dict):
+    return {
+        "bias": safe_get(pack, "bias", "N/A"),
+        "state": safe_get(pack, "market_state", safe_get(pack, "regime", "N/A")),
+        "signal": safe_get(pack, "signal", "N/A"),
+        "pressure": int(safe_float(safe_get(pack, "pressure", 0), 0) or 0),
+        "go": calc_go_signal(pack, safe_get(pack, "bias", "NEUTRAL")),
+    }
+
+def run_scan(tickers: list[str], selected_ticker: str, selected_pack: dict | None):
+    rows = []
+    for t in tickers:
+        if t == selected_ticker and isinstance(selected_pack, dict) and "error" not in selected_pack:
+            pack = selected_pack
+        else:
+            pack = generate_signal(t, interval="5m")
+
+        if not isinstance(pack, dict) or "error" in pack:
+            rows.append({
+                "Ticker": t,
+                "Price": None,
+                "Bias": "ERROR",
+                "State": safe_get(pack, "error", "No data"),
+                "Pressure": None,
+                "Go": "WAIT",
+            })
+            continue
+
+        bias = safe_get(pack, "bias", "NEUTRAL")
+        state = safe_get(pack, "market_state", safe_get(pack, "regime", "N/A"))
+        price = safe_float(safe_get(pack, "price"))
+        pressure = int(safe_float(safe_get(pack, "pressure", 0), 0) or 0)
+        go = calc_go_signal(pack, bias)
+
+        snap = make_snapshot(pack)
+        prev = st.session_state.last_seen.get(t)
+
+        if prev is None:
+            st.session_state.last_seen[t] = snap
+        else:
+            if prev.get("go") != snap.get("go"):
+                if snap.get("go") in ["GO LONG", "GO SHORT"]:
+                    push_alert(t, "GO", f"{snap.get('go')} — {state} (Pressure {pressure})")
+                else:
+                    push_alert(t, "RESET", f"Back to WAIT — {state}")
+
+            if prev.get("state") != snap.get("state"):
+                push_alert(t, "STATE", f"{prev.get('state')} → {snap.get('state')}")
+
+            if prev.get("pressure", 0) < 70 and snap.get("pressure", 0) >= 70:
+                push_alert(t, "HEAT", f"Pressure popped ≥70 ({snap.get('pressure')})")
+            if prev.get("pressure", 100) > 40 and snap.get("pressure", 0) <= 40:
+                push_alert(t, "COLD", f"Pressure faded ≤40 ({snap.get('pressure')})")
+
+            st.session_state.last_seen[t] = snap
+
+        rows.append({
+            "Ticker": t,
+            "Price": price,
+            "Bias": bias,
+            "State": state,
+            "Pressure": pressure,
+            "Go": go,
+        })
+
+    # sort: hottest first
+    def sort_key(r):
+        p = r.get("Pressure")
+        return -999 if p is None else p
+
+    st.session_state.scanner_rows = sorted(rows, key=sort_key, reverse=True)
+    st.session_state.last_scan_ts = time.time()
+
+def schedule_rerun(interval_seconds: int):
+    # Prefer streamlit-autorefresh if installed; fallback to JS rerun.
+    try:
+        from streamlit_autorefresh import st_autorefresh  # type: ignore
+        st_autorefresh(interval=interval_seconds * 1000, key="lockout_auto_scan")
+    except Exception:
+        components.html(
+            f"""
+<script>
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  (async () => {{
+    await sleep({interval_seconds * 1000});
+    window.parent.postMessage({{isStreamlitMessage: true, type: "streamlit:rerun"}}, "*");
+  }})();
+</script>
+            """,
+            height=0,
+        )
+
+# -----------------------------
+# INIT STATE
+# -----------------------------
+ensure_state()
+
 # -----------------------------
 # HEADER
 # -----------------------------
 st.markdown('<div class="main-title">Lockout Signals</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtle">Command center upgrade • premium UI layer • backend brain untouched</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtle">Command center upgrade • scanner + alerts layer • backend brain untouched</div>', unsafe_allow_html=True)
 
-top1, top2, top3, top4 = st.columns([1.15, 1.1, 1.1, 2.65])
+top1, top2, top3, top4, top5 = st.columns([1.05, 1.05, 1.05, 1.15, 2.70])
 with top1:
     if st.button("Refresh Now", use_container_width=True):
         st.rerun()
 with top2:
     show_charts = st.toggle("Show Charts", value=False)
 with top3:
-    sound_alerts = st.toggle("Sound Alerts", value=False)
+    sound_alerts = st.toggle("Sound Alerts", value=False)  # visual only for now
 with top4:
+    auto_scan = st.toggle("Auto Scan", value=True)
+with top5:
     st.markdown(
-        '<div class="tiny-note">Safe mode engaged: display upgrades only. Signal generation and backend logic remain untouched.</div>',
+        '<div class="tiny-note">Safe mode: UI + scanner + alerts only. Signal generation and agent logic remain untouched.</div>',
         unsafe_allow_html=True
     )
 
+i1, i2, i3 = st.columns([1.2, 1.2, 2.6])
+with i1:
+    scan_interval = st.selectbox("Scan Interval (sec)", [15, 30, 60], index=1)
+with i2:
+    scan_now = st.button("Scan Now", use_container_width=True)
+with i3:
+    last_txt = time.strftime("%H:%M:%S", time.localtime(st.session_state.last_scan_ts)) if st.session_state.last_scan_ts else "—"
+    st.markdown(f'<div class="tiny-note">Last scan: <span class="white">{last_txt}</span></div>', unsafe_allow_html=True)
+
+if auto_scan:
+    schedule_rerun(int(scan_interval))
+
 control1, control2 = st.columns([2, 2])
 with control1:
-    selected_ticker = st.selectbox(
-        "Select Ticker",
-        [
-            "SPY", "QQQ", "IWM", "DIA",
-            "AAPL", "NVDA", "TSLA", "AMD", "META",
-            "AMZN", "MSFT", "NBIS", "NFLX", "PLTR",
-            "MSTR", "COIN", "SOFI", "HOOD", "INTC",
-            "MU", "AVGO", "SMCI", "ARM", "BABA",
-            "XOM", "OXY", "USO"
-        ],
-        index=0
-    )
+    selected_ticker = st.selectbox("Select Ticker", st.session_state.watchlist, index=0)
 with control2:
     mode = st.radio("Mode", ["Aggressive", "Full Send"], horizontal=True, index=0)
 
@@ -915,6 +1090,19 @@ if isinstance(feed_items, list) and feed_items:
     feed_html = feed_colorize(feed_items[:6])
 else:
     feed_html = f'<span class="blue">• {selected_ticker} tactical feed online</span>'
+
+# -----------------------------
+# SCANNER EXECUTION
+# -----------------------------
+should_scan = False
+if scan_now:
+    should_scan = True
+elif auto_scan:
+    if time.time() - float(st.session_state.last_scan_ts or 0) >= max(10, int(scan_interval) - 1):
+        should_scan = True
+
+if should_scan:
+    run_scan(st.session_state.watchlist, selected_ticker, sig)
 
 # -----------------------------
 # COMMAND BAR
@@ -964,7 +1152,6 @@ st.markdown(
 # HERO
 # -----------------------------
 st.markdown('<div class="hero-card">', unsafe_allow_html=True)
-
 st.markdown(f'<div class="ticker-line {bias_cls}">{selected_ticker} • 5M Tactical Brain</div>', unsafe_allow_html=True)
 
 st.markdown(f'<div class="{price_box_class(bias)}">', unsafe_allow_html=True)
@@ -995,9 +1182,9 @@ st.markdown(chip_html, unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # -----------------------------
-# BODY LAYOUT (FIX: fill center with Commentary)
+# BODY LAYOUT
 # -----------------------------
-left, center, right = st.columns([1.55, 1.35, 0.90])
+left, center, right = st.columns([1.55, 1.55, 0.90])
 
 with left:
     build_go_signal(go_signal, sound_armed=sound_alerts)
@@ -1008,11 +1195,52 @@ with left:
 with center:
     build_commentary_box(commentary)
 
+    st.markdown('<div class="scan-shell">', unsafe_allow_html=True)
+    st.markdown('<div class="scan-title">Watchlist Scanner</div>', unsafe_allow_html=True)
+
+    rows = st.session_state.scanner_rows or []
+    if rows:
+        df_scan = pd.DataFrame(rows)
+        st.dataframe(df_scan, use_container_width=True, hide_index=True)
+    else:
+        st.markdown('<div class="tiny-note">No scan results yet. Hit <b>Scan Now</b> or leave <b>Auto Scan</b> ON.</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="alert-shell">', unsafe_allow_html=True)
+    st.markdown('<div class="scan-title">Alerts</div>', unsafe_allow_html=True)
+
+    if st.session_state.alerts:
+        for a in st.session_state.alerts[:12]:
+            t = a.get("t", "")
+            tk = a.get("ticker", "")
+            kind = a.get("kind", "")
+            msg = a.get("msg", "")
+            kind_up = str(kind).upper()
+
+            cls = "blue"
+            if kind_up in ["GO", "HEAT"]:
+                cls = "green"
+            elif kind_up in ["COLD", "RESET"]:
+                cls = "gold"
+            elif kind_up in ["STATE"]:
+                cls = "white"
+
+            st.markdown(
+                f'<div class="alert-row"><span class="tiny-note">{t}</span> '
+                f'<span class="{cls}"><b>{tk}</b></span> — <span class="tiny-note">{kind}</span> — {msg}</div>',
+                unsafe_allow_html=True
+            )
+    else:
+        st.markdown('<div class="tiny-note">No alerts yet. When GO/state/pressure thresholds flip, they’ll print here.</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
     st.markdown('<div class="mini-alert">', unsafe_allow_html=True)
     st.markdown(
         f"<strong>Trade Readiness:</strong> {go_signal} &nbsp;&nbsp;|&nbsp;&nbsp; "
         f"<strong>Mode:</strong> {mode.upper()} &nbsp;&nbsp;|&nbsp;&nbsp; "
-        f"<strong>Alerts:</strong> {'ARMED' if sound_alerts else 'OFF'}",
+        f"<strong>Auto Scan:</strong> {'ON' if auto_scan else 'OFF'} ({scan_interval}s)",
         unsafe_allow_html=True
     )
     st.markdown('</div>', unsafe_allow_html=True)
