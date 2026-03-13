@@ -30,18 +30,18 @@ st.markdown("""
     }
 
     .main-title {
-        font-size: 2.9rem;
+        font-size: 2.7rem;
         font-weight: 1000;
         color: #ffffff;
-        margin-bottom: 0.15rem;
+        margin-bottom: 0.10rem;
         line-height: 1.02;
         text-shadow: 0 0 22px rgba(0,180,255,0.12);
     }
 
     .subtle {
         color: #9cb1d3;
-        font-size: 0.95rem;
-        margin-bottom: 1rem;
+        font-size: 0.90rem;
+        margin-bottom: 0.85rem;
     }
 
     .hero-card {
@@ -49,67 +49,66 @@ st.markdown("""
             radial-gradient(circle at top center, rgba(255,255,255,0.03), transparent 36%),
             linear-gradient(180deg, rgba(18,27,46,0.98), rgba(9,15,26,0.98));
         border: 1px solid rgba(101,139,215,0.22);
-        border-radius: 24px;
-        padding: 20px;
-        margin-bottom: 18px;
+        border-radius: 20px;
+        padding: 16px;
+        margin-bottom: 12px;
         box-shadow:
-            0 18px 30px rgba(0,0,0,0.25),
+            0 14px 24px rgba(0,0,0,0.22),
             inset 0 1px 0 rgba(255,255,255,0.04);
     }
 
     .command-bar {
-        background:
-            linear-gradient(180deg, rgba(16,24,40,0.98), rgba(10,16,28,0.98));
+        background: linear-gradient(180deg, rgba(16,24,40,0.98), rgba(10,16,28,0.98));
         border: 1px solid rgba(101,139,215,0.18);
-        border-radius: 20px;
-        padding: 14px 16px;
-        margin-bottom: 14px;
+        border-radius: 16px;
+        padding: 11px 12px;
+        margin-bottom: 12px;
         box-shadow:
-            0 12px 22px rgba(0,0,0,0.18),
+            0 10px 18px rgba(0,0,0,0.16),
             inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
     .command-grid {
         display: grid;
-        grid-template-columns: repeat(5, minmax(120px, 1fr));
-        gap: 10px;
+        grid-template-columns: repeat(5, minmax(110px, 1fr));
+        gap: 8px;
     }
 
     .command-pill {
-        border-radius: 16px;
-        padding: 10px 12px;
+        border-radius: 14px;
+        padding: 8px 10px;
         background: linear-gradient(180deg, rgba(21,31,52,0.96), rgba(12,18,31,0.96));
         border: 1px solid rgba(113,150,225,0.18);
         box-shadow:
-            0 10px 18px rgba(0,0,0,0.14),
+            0 8px 14px rgba(0,0,0,0.12),
             inset 0 1px 0 rgba(255,255,255,0.02);
     }
 
     .command-label {
-        font-size: 0.68rem;
+        font-size: 0.64rem;
         font-weight: 1000;
         letter-spacing: 1px;
         text-transform: uppercase;
         color: #8ea6d1;
-        margin-bottom: 4px;
+        margin-bottom: 3px;
     }
 
     .command-value {
-        font-size: 1.02rem;
+        font-size: 0.95rem;
         font-weight: 1000;
         color: #f4f8ff;
         line-height: 1.05;
     }
 
     .market-banner {
-        border-radius: 18px;
-        padding: 13px 16px;
-        margin-bottom: 14px;
+        border-radius: 14px;
+        padding: 10px 14px;
+        margin-bottom: 12px;
         font-weight: 1000;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.4px;
         border: 1px solid rgba(255,255,255,0.10);
         box-shadow:
-            0 10px 18px rgba(0,0,0,0.15),
+            0 8px 14px rgba(0,0,0,0.14),
             inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
@@ -140,43 +139,43 @@ st.markdown("""
     .section-shell {
         background: linear-gradient(180deg, rgba(16,24,40,0.98), rgba(10,16,28,0.98));
         border: 1px solid rgba(101,139,215,0.16);
-        border-radius: 18px;
-        padding: 14px;
-        margin-bottom: 14px;
+        border-radius: 16px;
+        padding: 12px;
+        margin-bottom: 12px;
         box-shadow:
-            0 12px 22px rgba(0,0,0,0.18),
+            0 10px 18px rgba(0,0,0,0.16),
             inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
     .section-title {
         display: inline-block;
-        padding: 7px 14px;
+        padding: 6px 12px;
         border-radius: 999px;
-        font-size: 0.76rem;
+        font-size: 0.72rem;
         font-weight: 1000;
-        letter-spacing: 1.2px;
+        letter-spacing: 1.1px;
         text-transform: uppercase;
         color: #a9c4ff;
         background: linear-gradient(180deg, rgba(21,31,52,0.96), rgba(12,18,31,0.96));
         border: 1px solid rgba(113,150,225,0.16);
-        margin-bottom: 12px;
+        margin-bottom: 10px;
     }
 
     .ticker-line {
-        font-size: 1.7rem;
+        font-size: 1.55rem;
         font-weight: 1000;
-        margin-bottom: 0.45rem;
+        margin-bottom: 0.35rem;
         letter-spacing: 1px;
     }
 
     .price-box {
-        border-radius: 20px;
-        padding: 16px 18px;
-        margin-bottom: 12px;
+        border-radius: 16px;
+        padding: 12px 14px;
+        margin-bottom: 10px;
         border: 1px solid rgba(255,255,255,0.06);
         box-shadow:
             inset 0 1px 0 rgba(255,255,255,0.04),
-            0 10px 18px rgba(0,0,0,0.18);
+            0 8px 14px rgba(0,0,0,0.16);
         position: relative;
         overflow: hidden;
     }
@@ -203,7 +202,7 @@ st.markdown("""
     }
 
     .hero-price {
-        font-size: 3.5rem;
+        font-size: 3.0rem;
         font-weight: 1000;
         line-height: 0.95;
         margin: 0;
@@ -222,14 +221,14 @@ st.markdown("""
 
     .day-change-label {
         color: #8ea6d1;
-        font-size: 0.78rem;
+        font-size: 0.72rem;
         font-weight: 900;
         letter-spacing: 0.8px;
         text-transform: uppercase;
     }
 
     .day-change-value {
-        font-size: 1.2rem;
+        font-size: 1.05rem;
         font-weight: 1000;
     }
 
@@ -240,21 +239,21 @@ st.markdown("""
     .white { color: #f4f8ff; }
 
     .signal-box {
-        font-size: 1.08rem;
+        font-size: 0.98rem;
         font-weight: 1000;
-        padding: 11px 14px;
-        border-radius: 14px;
-        margin-top: 0.5rem;
-        margin-bottom: 0.7rem;
+        padding: 9px 12px;
+        border-radius: 12px;
+        margin-top: 0.35rem;
+        margin-bottom: 0.55rem;
         border: 1px solid rgba(255,255,255,0.10);
-        box-shadow: 0 8px 18px rgba(0,0,0,0.15);
+        box-shadow: 0 8px 16px rgba(0,0,0,0.14);
         animation: pulse-glow 2.6s ease-in-out infinite;
     }
 
     @keyframes pulse-glow {
-        0%   { box-shadow: 0 8px 18px rgba(0,0,0,0.15); }
-        50%  { box-shadow: 0 10px 22px rgba(0,0,0,0.20), 0 0 18px rgba(255,255,255,0.04); }
-        100% { box-shadow: 0 8px 18px rgba(0,0,0,0.15); }
+        0%   { box-shadow: 0 8px 16px rgba(0,0,0,0.14); }
+        50%  { box-shadow: 0 10px 20px rgba(0,0,0,0.18), 0 0 16px rgba(255,255,255,0.04); }
+        100% { box-shadow: 0 8px 16px rgba(0,0,0,0.14); }
     }
 
     .signal-green {
@@ -277,16 +276,16 @@ st.markdown("""
 
     .mode-chip {
         display: inline-block;
-        padding: 8px 13px;
+        padding: 7px 11px;
         border-radius: 999px;
-        font-size: 0.78rem;
+        font-size: 0.72rem;
         font-weight: 1000;
-        margin-right: 8px;
-        margin-bottom: 6px;
+        margin-right: 7px;
+        margin-bottom: 5px;
         background: linear-gradient(180deg, rgba(21,31,52,0.96), rgba(12,18,31,0.96));
         border: 1px solid rgba(113,150,225,0.18);
         box-shadow:
-            0 8px 16px rgba(0,0,0,0.12),
+            0 7px 14px rgba(0,0,0,0.11),
             inset 0 1px 0 rgba(255,255,255,0.02);
     }
 
@@ -294,19 +293,19 @@ st.markdown("""
         width: 100%;
         overflow: hidden;
         white-space: nowrap;
-        border-radius: 16px;
+        border-radius: 14px;
         background: linear-gradient(180deg, rgba(11,19,33,0.98), rgba(8,15,27,0.98));
         border: 1px solid rgba(96,126,194,0.18);
-        padding: 11px 0;
-        margin-bottom: 16px;
-        box-shadow: 0 12px 22px rgba(0,0,0,0.18);
+        padding: 9px 0;
+        margin-bottom: 12px;
+        box-shadow: 0 10px 18px rgba(0,0,0,0.16);
     }
 
     .feed-text {
         display: inline-block;
         padding-left: 100%;
         animation: ticker-scroll 26s linear infinite;
-        font-size: 0.95rem;
+        font-size: 0.88rem;
         font-weight: 1000;
         letter-spacing: 0.2px;
     }
@@ -318,15 +317,44 @@ st.markdown("""
 
     .tiny-note {
         color: #7f95b8;
-        font-size: 0.82rem;
+        font-size: 0.78rem;
+    }
+
+    .desc-box {
+        border-radius: 14px;
+        padding: 12px 14px;
+        margin-bottom: 12px;
+        background:
+            radial-gradient(circle at top right, rgba(141,200,255,0.08), transparent 40%),
+            linear-gradient(180deg, rgba(15,24,40,0.98), rgba(9,16,28,0.98));
+        border: 1px solid rgba(101,139,215,0.14);
+        box-shadow:
+            0 8px 14px rgba(0,0,0,0.14),
+            inset 0 1px 0 rgba(255,255,255,0.02);
+    }
+
+    .desc-title {
+        font-size: 0.72rem;
+        color: #8ea6d1;
+        font-weight: 1000;
+        letter-spacing: 1.1px;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+    }
+
+    .desc-text {
+        color: #f4f8ff;
+        font-size: 0.98rem;
+        line-height: 1.45;
+        font-weight: 500;
     }
 
     .ladder-shell {
         background: linear-gradient(180deg, rgba(12,18,31,0.96), rgba(9,13,24,0.96));
         border: 1px solid rgba(101,139,215,0.16);
-        border-radius: 16px;
-        padding: 12px;
-        margin-top: 6px;
+        border-radius: 14px;
+        padding: 10px 12px;
+        margin-top: 4px;
         margin-bottom: 10px;
     }
 
@@ -334,9 +362,9 @@ st.markdown("""
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 8px 2px;
+        padding: 7px 2px;
         border-bottom: 1px solid rgba(255,255,255,0.05);
-        font-size: 0.94rem;
+        font-size: 0.88rem;
         font-weight: 900;
     }
 
@@ -347,7 +375,7 @@ st.markdown("""
     .ladder-left {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 7px;
     }
 
     .ladder-tag-up { color: #4df0a5; }
@@ -355,53 +383,53 @@ st.markdown("""
     .ladder-tag-down { color: #ff6f8e; }
 
     .pulse-card {
-        border-radius: 18px;
-        padding: 16px;
-        margin-bottom: 12px;
+        border-radius: 14px;
+        padding: 12px;
+        margin-bottom: 10px;
         background:
             radial-gradient(circle at top right, rgba(141,200,255,0.10), transparent 42%),
             linear-gradient(180deg, rgba(16,24,40,0.98), rgba(10,16,28,0.98));
         border: 1px solid rgba(101,139,215,0.16);
         box-shadow:
-            0 10px 18px rgba(0,0,0,0.16),
+            0 8px 14px rgba(0,0,0,0.14),
             inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
     .pulse-label {
-        font-size: 0.72rem;
+        font-size: 0.68rem;
         color: #8ea6d1;
         font-weight: 1000;
         letter-spacing: 1.1px;
         text-transform: uppercase;
-        margin-bottom: 5px;
+        margin-bottom: 4px;
     }
 
     .pulse-value {
-        font-size: 1.25rem;
+        font-size: 1.08rem;
         font-weight: 1000;
-        margin-bottom: 3px;
+        margin-bottom: 2px;
     }
 
     .gauge-shell {
         background: linear-gradient(180deg, rgba(12,18,31,0.96), rgba(9,13,24,0.96));
         border: 1px solid rgba(101,139,215,0.16);
-        border-radius: 18px;
-        padding: 14px;
-        margin-bottom: 12px;
+        border-radius: 14px;
+        padding: 12px;
+        margin-bottom: 10px;
     }
 
     .gauge-title {
-        font-size: 0.72rem;
+        font-size: 0.68rem;
         color: #8ea6d1;
         font-weight: 1000;
         letter-spacing: 1.1px;
         text-transform: uppercase;
-        margin-bottom: 8px;
+        margin-bottom: 7px;
     }
 
     .gauge-track {
         width: 100%;
-        height: 14px;
+        height: 12px;
         border-radius: 999px;
         background: rgba(255,255,255,0.08);
         overflow: hidden;
@@ -425,8 +453,8 @@ st.markdown("""
     .gauge-caption {
         display: flex;
         justify-content: space-between;
-        margin-top: 8px;
-        font-size: 0.8rem;
+        margin-top: 7px;
+        font-size: 0.76rem;
         color: #8ea6d1;
         font-weight: 900;
     }
@@ -434,26 +462,26 @@ st.markdown("""
     .prob-shell {
         background: linear-gradient(180deg, rgba(12,18,31,0.96), rgba(9,13,24,0.96));
         border: 1px solid rgba(101,139,215,0.16);
-        border-radius: 18px;
-        padding: 14px;
-        margin-bottom: 12px;
+        border-radius: 14px;
+        padding: 12px;
+        margin-bottom: 10px;
     }
 
     .prob-row {
-        margin-bottom: 12px;
+        margin-bottom: 10px;
     }
 
     .prob-head {
         display: flex;
         justify-content: space-between;
-        margin-bottom: 6px;
-        font-size: 0.9rem;
+        margin-bottom: 5px;
+        font-size: 0.84rem;
         font-weight: 1000;
     }
 
     .prob-track {
         width: 100%;
-        height: 12px;
+        height: 10px;
         border-radius: 999px;
         background: rgba(255,255,255,0.08);
         overflow: hidden;
@@ -472,14 +500,14 @@ st.markdown("""
     }
 
     .go-shell {
-        border-radius: 18px;
-        padding: 16px;
-        margin-bottom: 14px;
+        border-radius: 14px;
+        padding: 12px;
+        margin-bottom: 10px;
         text-align: center;
         font-weight: 1000;
         border: 1px solid rgba(255,255,255,0.10);
         box-shadow:
-            0 12px 20px rgba(0,0,0,0.18),
+            0 10px 18px rgba(0,0,0,0.16),
             inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
@@ -508,35 +536,35 @@ st.markdown("""
     }
 
     .go-label {
-        font-size: 0.74rem;
+        font-size: 0.70rem;
         letter-spacing: 1.1px;
         text-transform: uppercase;
         opacity: 0.9;
-        margin-bottom: 6px;
+        margin-bottom: 5px;
     }
 
     .go-value {
-        font-size: 1.5rem;
+        font-size: 1.30rem;
         line-height: 1.1;
     }
 
     .radar-shell {
         background: linear-gradient(180deg, rgba(12,18,31,0.96), rgba(9,13,24,0.96));
         border: 1px solid rgba(101,139,215,0.16);
-        border-radius: 18px;
-        padding: 14px;
-        margin-bottom: 12px;
+        border-radius: 14px;
+        padding: 12px;
+        margin-bottom: 10px;
     }
 
     .radar-grid {
         display: grid;
         grid-template-columns: repeat(5, 1fr);
-        gap: 8px;
-        margin-top: 10px;
+        gap: 7px;
+        margin-top: 8px;
     }
 
     .radar-dot {
-        height: 18px;
+        height: 14px;
         border-radius: 999px;
         background: rgba(255,255,255,0.08);
         border: 1px solid rgba(255,255,255,0.06);
@@ -545,59 +573,68 @@ st.markdown("""
 
     .radar-on {
         background: linear-gradient(180deg, rgba(141,200,255,0.95), rgba(58,132,255,0.88));
-        box-shadow: 0 0 14px rgba(58,132,255,0.35);
+        box-shadow: 0 0 12px rgba(58,132,255,0.35);
     }
 
     .radar-hot {
         background: linear-gradient(180deg, rgba(255,216,106,0.95), rgba(255,111,142,0.90));
-        box-shadow: 0 0 14px rgba(255,111,142,0.35);
+        box-shadow: 0 0 12px rgba(255,111,142,0.35);
     }
 
     .mini-alert {
-        border-radius: 16px;
-        padding: 12px 14px;
-        margin-bottom: 12px;
+        border-radius: 14px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
         background: linear-gradient(180deg, rgba(15,24,40,0.98), rgba(9,16,28,0.98));
         border: 1px solid rgba(101,139,215,0.14);
         box-shadow:
-            0 10px 18px rgba(0,0,0,0.14),
+            0 8px 14px rgba(0,0,0,0.12),
             inset 0 1px 0 rgba(255,255,255,0.02);
+        font-size: 0.90rem;
     }
 
-    .mini-alert strong {
-        color: #f4f8ff;
+    .rolling-item {
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+        font-size: 0.90rem;
+    }
+
+    .rolling-item:last-child {
+        border-bottom: none;
     }
 
     div[data-testid="stMetric"] {
         background: linear-gradient(180deg, rgba(15,24,40,0.98), rgba(9,16,28,0.98));
         border: 1px solid rgba(101,139,215,0.14);
-        border-radius: 16px;
-        padding: 10px 12px;
+        border-radius: 14px;
+        padding: 7px 9px;
         box-shadow:
-            0 10px 18px rgba(0,0,0,0.14),
+            0 8px 14px rgba(0,0,0,0.12),
             inset 0 1px 0 rgba(255,255,255,0.02);
     }
 
     div[data-testid="stMetricLabel"] > div {
         color: #8ea6d1 !important;
         font-weight: 800;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.4px;
+        font-size: 0.76rem !important;
     }
 
     div[data-testid="stMetricValue"] {
         color: #f4f8ff !important;
         font-weight: 1000 !important;
+        font-size: 1.45rem !important;
     }
 
     div[data-testid="stButton"] > button {
-        border-radius: 14px;
+        border-radius: 12px;
         border: 1px solid rgba(118,157,232,0.20);
         background: linear-gradient(180deg, #15213b 0%, #0d1728 100%);
         color: #f7fbff;
         font-weight: 1000;
-        padding: 0.60rem 1rem;
+        padding: 0.52rem 0.9rem;
         box-shadow:
-            0 10px 18px rgba(0,0,0,0.18),
+            0 8px 14px rgba(0,0,0,0.16),
             inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
@@ -611,10 +648,10 @@ st.markdown("""
             grid-template-columns: repeat(2, minmax(120px, 1fr));
         }
         .hero-price {
-            font-size: 2.9rem;
+            font-size: 2.6rem;
         }
         .main-title {
-            font-size: 2.4rem;
+            font-size: 2.25rem;
         }
     }
 </style>
@@ -798,52 +835,48 @@ def build_pressure_gauge(value):
     except Exception:
         v = 0
 
-    st.markdown(
-        f"""
-        <div class="gauge-shell">
-            <div class="gauge-title">Pressure Gauge</div>
-            <div class="gauge-track">
-                <div class="gauge-fill" style="width:{v}%;"></div>
-            </div>
-            <div class="gauge-caption">
-                <span>0</span>
-                <span>{v}/100</span>
-                <span>100</span>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    html = f"""
+<div class="gauge-shell">
+    <div class="gauge-title">Pressure Gauge</div>
+    <div class="gauge-track">
+        <div class="gauge-fill" style="width:{v}%;"></div>
+    </div>
+    <div class="gauge-caption">
+        <span>0</span>
+        <span>{v}/100</span>
+        <span>100</span>
+    </div>
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
 
 def build_probabilities(up_pct, down_pct):
-    st.markdown(
-        f"""
-        <div class="prob-shell">
-            <div class="gauge-title">Trade Probability</div>
+    html = f"""
+<div class="prob-shell">
+    <div class="gauge-title">Trade Probability</div>
 
-            <div class="prob-row">
-                <div class="prob-head">
-                    <span class="green">Upside Probability</span>
-                    <span class="green">{up_pct}%</span>
-                </div>
-                <div class="prob-track">
-                    <div class="prob-fill-up" style="width:{up_pct}%;"></div>
-                </div>
-            </div>
-
-            <div class="prob-row" style="margin-bottom:0;">
-                <div class="prob-head">
-                    <span class="red">Downside Probability</span>
-                    <span class="red">{down_pct}%</span>
-                </div>
-                <div class="prob-track">
-                    <div class="prob-fill-down" style="width:{down_pct}%;"></div>
-                </div>
-            </div>
+    <div class="prob-row">
+        <div class="prob-head">
+            <span class="green">Upside Probability</span>
+            <span class="green">{up_pct}%</span>
         </div>
-        """,
-        unsafe_allow_html=True
-    )
+        <div class="prob-track">
+            <div class="prob-fill-up" style="width:{up_pct}%;"></div>
+        </div>
+    </div>
+
+    <div class="prob-row" style="margin-bottom:0;">
+        <div class="prob-head">
+            <span class="red">Downside Probability</span>
+            <span class="red">{down_pct}%</span>
+        </div>
+        <div class="prob-track">
+            <div class="prob-fill-down" style="width:{down_pct}%;"></div>
+        </div>
+    </div>
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
 
 def build_target_ladder(sig):
     calls_above = fmt_num(safe_get(sig, "calls_favored_above"))
@@ -853,44 +886,42 @@ def build_target_ladder(sig):
     likely_down = fmt_num(safe_get(sig, "likely_down"))
     stretch_down = fmt_num(safe_get(sig, "stretch_down"))
 
-    st.markdown(
-        f"""
-        <div class="ladder-shell">
-            <div class="gauge-title">Target Ladder</div>
+    html = f"""
+<div class="ladder-shell">
+    <div class="gauge-title">Target Ladder</div>
 
-            <div class="ladder-row">
-                <div class="ladder-left"><span class="ladder-tag-up">↑</span><span>Stretch Up</span></div>
-                <div class="ladder-tag-up">{stretch_up}</div>
-            </div>
+    <div class="ladder-row">
+        <div class="ladder-left"><span class="ladder-tag-up">↑</span><span>Stretch Up</span></div>
+        <div class="ladder-tag-up">{stretch_up}</div>
+    </div>
 
-            <div class="ladder-row">
-                <div class="ladder-left"><span class="ladder-tag-up">↑</span><span>Likely Up</span></div>
-                <div class="ladder-tag-up">{likely_up}</div>
-            </div>
+    <div class="ladder-row">
+        <div class="ladder-left"><span class="ladder-tag-up">↑</span><span>Likely Up</span></div>
+        <div class="ladder-tag-up">{likely_up}</div>
+    </div>
 
-            <div class="ladder-row">
-                <div class="ladder-left"><span class="ladder-tag-mid">—</span><span>Calls Favored Above</span></div>
-                <div class="ladder-tag-mid">{calls_above}</div>
-            </div>
+    <div class="ladder-row">
+        <div class="ladder-left"><span class="ladder-tag-mid">—</span><span>Calls Favored Above</span></div>
+        <div class="ladder-tag-mid">{calls_above}</div>
+    </div>
 
-            <div class="ladder-row">
-                <div class="ladder-left"><span class="ladder-tag-mid">•</span><span>Warning Line</span></div>
-                <div class="ladder-tag-mid">{warning_line}</div>
-            </div>
+    <div class="ladder-row">
+        <div class="ladder-left"><span class="ladder-tag-mid">•</span><span>Warning Line</span></div>
+        <div class="ladder-tag-mid">{warning_line}</div>
+    </div>
 
-            <div class="ladder-row">
-                <div class="ladder-left"><span class="ladder-tag-down">↓</span><span>Likely Down</span></div>
-                <div class="ladder-tag-down">{likely_down}</div>
-            </div>
+    <div class="ladder-row">
+        <div class="ladder-left"><span class="ladder-tag-down">↓</span><span>Likely Down</span></div>
+        <div class="ladder-tag-down">{likely_down}</div>
+    </div>
 
-            <div class="ladder-row">
-                <div class="ladder-left"><span class="ladder-tag-down">↓</span><span>Stretch Down</span></div>
-                <div class="ladder-tag-down">{stretch_down}</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    <div class="ladder-row">
+        <div class="ladder-left"><span class="ladder-tag-down">↓</span><span>Stretch Down</span></div>
+        <div class="ladder-tag-down">{stretch_down}</div>
+    </div>
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
 
 def calc_volatility_score(sig, day_pct):
     pressure = safe_float(safe_get(sig, "pressure", 50), 50) or 50
@@ -924,20 +955,19 @@ def build_volatility_radar(vol_score):
         dots.append(f'<div class="{cls}"></div>')
 
     radar_label = "HOT" if vol_score >= 70 else "ELEVATED" if vol_score >= 45 else "STABLE"
+    tone_cls = "red" if vol_score >= 70 else "gold" if vol_score >= 45 else "blue"
 
-    st.markdown(
-        f"""
-        <div class="radar-shell">
-            <div class="gauge-title">Volatility Radar</div>
-            <div class="pulse-value {'red' if vol_score >= 70 else 'gold' if vol_score >= 45 else 'blue'}">{radar_label}</div>
-            <div class="tiny-note">Volatility score: {vol_score}/100</div>
-            <div class="radar-grid">
-                {''.join(dots)}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    html = f"""
+<div class="radar-shell">
+    <div class="gauge-title">Volatility Radar</div>
+    <div class="pulse-value {tone_cls}">{radar_label}</div>
+    <div class="tiny-note">Volatility score: {vol_score}/100</div>
+    <div class="radar-grid">
+        {''.join(dots)}
+    </div>
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
 
 def build_market_pulse(pulse_text):
     tone_cls = "green"
@@ -947,30 +977,35 @@ def build_market_pulse(pulse_text):
     elif "BALANCED" in pulse_upper:
         tone_cls = "gold"
 
-    st.markdown(
-        f"""
-        <div class="pulse-card">
-            <div class="pulse-label">Market Pulse</div>
-            <div class="pulse-value {tone_cls}">{pulse_text}</div>
-            <div class="tiny-note">Live read from pressure, bias, structure, VWAP and EMA alignment.</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    html = f"""
+<div class="pulse-card">
+    <div class="pulse-label">Market Pulse</div>
+    <div class="pulse-value {tone_cls}">{pulse_text}</div>
+    <div class="tiny-note">Live read from pressure, bias, structure, VWAP and EMA alignment.</div>
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
 
 def build_go_signal(go_signal, sound_armed=False):
     subtitle = "Signal armed" if sound_armed else "Visual signal only"
 
-    st.markdown(
-        f"""
-        <div class="{go_class(go_signal)}">
-            <div class="go-label">Go / No Go Signal</div>
-            <div class="go-value">{go_signal}</div>
-            <div class="tiny-note">{subtitle}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    html = f"""
+<div class="{go_class(go_signal)}">
+    <div class="go-label">Go / No Go Signal</div>
+    <div class="go-value">{go_signal}</div>
+    <div class="tiny-note">{subtitle}</div>
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
+
+def build_description_box(text):
+    html = f"""
+<div class="desc-box">
+    <div class="desc-title">Description</div>
+    <div class="desc-text">{text}</div>
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
 
 # -----------------------------
 # HEADER
@@ -978,7 +1013,7 @@ def build_go_signal(go_signal, sound_armed=False):
 st.markdown('<div class="main-title">Lockout Signals</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtle">Command center upgrade • premium UI layer • backend brain untouched</div>', unsafe_allow_html=True)
 
-top1, top2, top3, top4 = st.columns([1.2, 1.2, 1.2, 2.6])
+top1, top2, top3, top4 = st.columns([1.15, 1.1, 1.1, 2.65])
 with top1:
     if st.button("Refresh Now", use_container_width=True):
         st.rerun()
@@ -988,7 +1023,7 @@ with top3:
     sound_alerts = st.toggle("Sound Alerts", value=False)
 with top4:
     st.markdown(
-        '<div class="tiny-note">Safe mode engaged: this upgrade changes display only. Brain logic and signal generation stay exactly as-is.</div>',
+        '<div class="tiny-note">Safe mode engaged: display upgrades only. Signal generation and backend logic remain untouched.</div>',
         unsafe_allow_html=True
     )
 
@@ -1048,6 +1083,12 @@ market_pulse = calc_market_pulse(sig, bias)
 up_prob, down_prob = calc_trade_probabilities(sig, bias)
 go_signal = calc_go_signal(sig, bias)
 vol_score = calc_volatility_score(sig, day_pct)
+
+commentary = safe_get(sig, "commentary", "")
+if commentary:
+    description_text = commentary
+else:
+    description_text = f"{selected_ticker} is currently in {state.lower()} conditions with {bias.lower()} bias and signal status: {signal_text.lower()}."
 
 feed_items = safe_get(sig, "feed", [])
 if isinstance(feed_items, list) and feed_items:
@@ -1143,10 +1184,12 @@ st.markdown(chip_html, unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 
+build_description_box(description_text)
+
 # -----------------------------
 # BODY LAYOUT
 # -----------------------------
-left, center, right = st.columns([1.15, 1.15, 0.95])
+left, center, right = st.columns([1.05, 1.05, 0.90])
 
 with left:
     build_go_signal(go_signal, sound_armed=sound_alerts)
@@ -1202,11 +1245,7 @@ with col_left:
 
     st.markdown('<div class="section-shell">', unsafe_allow_html=True)
     section_title("Commentary")
-    commentary = safe_get(sig, "commentary", "")
-    if commentary:
-        st.write(commentary)
-    else:
-        st.write("No commentary available.")
+    st.write(description_text)
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
@@ -1251,7 +1290,7 @@ if isinstance(feed_items, list) and len(feed_items) > 0:
     st.markdown('<div class="section-shell">', unsafe_allow_html=True)
     section_title("Rolling Feed")
     for item in feed_items[:6]:
-        st.write(f"• {item}")
+        st.markdown(f'<div class="rolling-item">• {item}</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 # -----------------------------
