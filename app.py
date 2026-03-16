@@ -1,4 +1,7 @@
 import math
+import base64
+from pathlib import Path
+
 import streamlit as st
 from agent import generate_signal, get_data, add_indicators
 
@@ -7,6 +10,20 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+# -----------------------------
+# LOGO LOADER
+# -----------------------------
+def load_logo(path: str):
+    try:
+        p = Path(path)
+        if p.exists():
+            return base64.b64encode(p.read_bytes()).decode("utf-8")
+    except Exception:
+        pass
+    return None
+
+LOGO_B64 = load_logo("edge15logo.jpg")
 
 # -----------------------------
 # STYLE
@@ -24,6 +41,36 @@ st.markdown(
 
     [data-testid="stHeader"] { background: rgba(0,0,0,0); }
     [data-testid="stSidebar"] { background: linear-gradient(180deg, #09111d 0%, #0c1525 100%); }
+
+    .header-wrap {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 0.20rem;
+        padding: 6px 0 2px 0;
+    }
+
+    .header-logo {
+        width: 78px;
+        height: 78px;
+        object-fit: contain;
+        border-radius: 18px;
+        padding: 6px;
+        background:
+            radial-gradient(circle at center, rgba(255,255,255,0.06), transparent 70%),
+            linear-gradient(180deg, rgba(14,22,38,0.95), rgba(8,14,24,0.95));
+        border: 1px solid rgba(113,150,225,0.20);
+        box-shadow:
+            0 12px 24px rgba(0,0,0,0.22),
+            0 0 24px rgba(0,140,255,0.10),
+            inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+
+    .header-text-wrap {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
 
     .main-title {
         font-size: 2.7rem;
@@ -314,7 +361,6 @@ st.markdown(
         font-size: 0.78rem;
     }
 
-    /* Left stack cards */
     .pulse-card {
         border-radius: 14px;
         padding: 14px;
@@ -524,7 +570,6 @@ st.markdown(
     }
     .rolling-item:last-child { border-bottom: none; }
 
-    /* Scanner styling */
     .scanner-shell {
         background: linear-gradient(180deg, rgba(16,24,40,0.98), rgba(10,16,28,0.98));
         border: 1px solid rgba(101,139,215,0.16);
@@ -648,6 +693,8 @@ st.markdown(
         .hero-price { font-size: 2.6rem; }
         .main-title { font-size: 2.25rem; }
         .scan-row { grid-template-columns: 1fr; }
+        .header-wrap { gap: 12px; }
+        .header-logo { width: 64px; height: 64px; }
     }
 </style>
     """,
@@ -908,7 +955,6 @@ def build_go_signal(go_signal, sound_armed=False):
 
 def build_commentary_box(text):
     safe_text = text if text else "No commentary available."
-    # Escape HTML-ish chars safely (basic)
     safe_text = safe_text.replace("<", "&lt;").replace(">", "&gt;")
     st.markdown(
         f"""
@@ -921,25 +967,16 @@ def build_commentary_box(text):
     )
 
 def classify_scan_color(sig: dict) -> tuple[str, str, str]:
-    """
-    Returns: (row_class, pill_class, label)
-    Green = strong directional (bull/bear) + decent pressure
-    Yellow = chop/neutral or weak pressure
-    Red = strong bearish w/ pressure OR breakdown signals
-    """
     bias = str(safe_get(sig, "bias", "NEUTRAL")).upper()
     state = str(safe_get(sig, "market_state", safe_get(sig, "regime", "N/A"))).upper()
     pressure = safe_float(safe_get(sig, "pressure", 0), 0) or 0
 
-    # Strong bears / breakdowns
     if ("BEAR" in state or "BREAKDOWN" in state) and pressure >= 60:
         return ("scan-red", "scan-pill-red", "RED")
 
-    # Strong bulls / breakouts
     if ("BULL" in state or "BREAKOUT" in state) and pressure >= 60 and bias == "BULLISH":
         return ("scan-green", "scan-pill-green", "GREEN")
 
-    # Bias-based fallback
     if bias == "BEARISH" and pressure >= 65:
         return ("scan-red", "scan-pill-red", "RED")
     if bias == "BULLISH" and pressure >= 65:
@@ -995,8 +1032,22 @@ def render_scanner_row(ticker: str, sig: dict):
 # -----------------------------
 # HEADER
 # -----------------------------
-st.markdown('<div class="main-title">Lockout Signals</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtle">Command center upgrade • premium UI layer • backend brain untouched</div>', unsafe_allow_html=True)
+if LOGO_B64:
+    st.markdown(
+        f"""
+        <div class="header-wrap">
+            <img class="header-logo" src="data:image/jpeg;base64,{LOGO_B64}" alt="Lockout Signals Logo">
+            <div class="header-text-wrap">
+                <div class="main-title">Lockout Signals</div>
+                <div class="subtle">Command center upgrade • premium UI layer • backend brain untouched</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+else:
+    st.markdown('<div class="main-title">Lockout Signals</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtle">Command center upgrade • premium UI layer • backend brain untouched</div>', unsafe_allow_html=True)
 
 # Autorefresh (if available)
 try:
@@ -1065,20 +1116,14 @@ watchlist = st.multiselect(
 )
 
 scan_now = st.button("Scan Now", use_container_width=True)
-
-# We scan if:
-# - user hits Scan Now
-# - OR Auto Scan is on (autorefresh will rerun the script)
 should_scan = scan_now or auto_scan
 
 if should_scan:
-    # Slightly defensive: avoid empty list
     if not watchlist:
         st.warning("Add at least 1 ticker to the watchlist.")
     else:
-        # scan results
         for t in watchlist:
-            s = generate_signal(t, interval="5m")  # brain call unchanged
+            s = generate_signal(t, interval="5m")
             if isinstance(s, dict) and "error" in s:
                 st.markdown(
                     f"""
