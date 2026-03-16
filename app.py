@@ -1,7 +1,13 @@
 import math
+import base64
+from pathlib import Path
+
 import streamlit as st
 from agent import generate_signal, get_data, add_indicators
 
+# -----------------------------
+# PAGE CONFIG
+# -----------------------------
 st.set_page_config(
     page_title="Lockout Signals",
     layout="wide",
@@ -9,38 +15,72 @@ st.set_page_config(
 )
 
 # -----------------------------
+# ASSET HELPERS (UI ONLY)
+# -----------------------------
+def img_to_base64(path: str) -> str | None:
+    """Return base64 string for an image file; None if missing."""
+    try:
+        p = Path(path)
+        if not p.exists():
+            return None
+        return base64.b64encode(p.read_bytes()).decode("utf-8")
+    except Exception:
+        return None
+
+LOGO_PATH = "assets/edge15logo.jpg"
+LOGO_B64 = img_to_base64(LOGO_PATH)
+
+# -----------------------------
 # STYLE
 # -----------------------------
 st.markdown(
-    """
+    f"""
 <style>
-    .stApp {
+    .stApp {{
         background:
             radial-gradient(circle at 12% 8%, rgba(0,255,180,0.06), transparent 24%),
             radial-gradient(circle at 88% 12%, rgba(0,140,255,0.07), transparent 26%),
             linear-gradient(180deg, #040812 0%, #07111d 55%, #091521 100%);
         color: #f4f8ff;
-    }
+    }}
 
-    [data-testid="stHeader"] { background: rgba(0,0,0,0); }
-    [data-testid="stSidebar"] { background: linear-gradient(180deg, #09111d 0%, #0c1525 100%); }
+    [data-testid="stHeader"] {{ background: rgba(0,0,0,0); }}
+    [data-testid="stSidebar"] {{ background: linear-gradient(180deg, #09111d 0%, #0c1525 100%); }}
 
-    .main-title {
+    /* Top-right logo */
+    .top-logo {{
+        position: fixed;
+        top: 14px;
+        right: 18px;
+        z-index: 9999;
+        opacity: 0.95;
+        filter: drop-shadow(0 8px 18px rgba(0,0,0,0.35));
+        border-radius: 12px;
+    }}
+    .top-logo img {{
+        width: 84px;
+        height: auto;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.10);
+        background: rgba(0,0,0,0.10);
+    }}
+
+    .main-title {{
         font-size: 2.7rem;
         font-weight: 1000;
         color: #ffffff;
         margin-bottom: 0.10rem;
         line-height: 1.02;
         text-shadow: 0 0 22px rgba(0,180,255,0.12);
-    }
+    }}
 
-    .subtle {
+    .subtle {{
         color: #9cb1d3;
         font-size: 0.90rem;
         margin-bottom: 0.85rem;
-    }
+    }}
 
-    .hero-card {
+    .hero-card {{
         background:
             radial-gradient(circle at top center, rgba(255,255,255,0.03), transparent 36%),
             linear-gradient(180deg, rgba(18,27,46,0.98), rgba(9,15,26,0.98));
@@ -51,9 +91,9 @@ st.markdown(
         box-shadow:
             0 14px 24px rgba(0,0,0,0.22),
             inset 0 1px 0 rgba(255,255,255,0.04);
-    }
+    }}
 
-    .command-bar {
+    .command-bar {{
         background: linear-gradient(180deg, rgba(16,24,40,0.98), rgba(10,16,28,0.98));
         border: 1px solid rgba(101,139,215,0.18);
         border-radius: 16px;
@@ -62,15 +102,15 @@ st.markdown(
         box-shadow:
             0 10px 18px rgba(0,0,0,0.16),
             inset 0 1px 0 rgba(255,255,255,0.03);
-    }
+    }}
 
-    .command-grid {
+    .command-grid {{
         display: grid;
         grid-template-columns: repeat(5, minmax(110px, 1fr));
         gap: 8px;
-    }
+    }}
 
-    .command-pill {
+    .command-pill {{
         border-radius: 14px;
         padding: 8px 10px;
         background: linear-gradient(180deg, rgba(21,31,52,0.96), rgba(12,18,31,0.96));
@@ -78,25 +118,25 @@ st.markdown(
         box-shadow:
             0 8px 14px rgba(0,0,0,0.12),
             inset 0 1px 0 rgba(255,255,255,0.02);
-    }
+    }}
 
-    .command-label {
+    .command-label {{
         font-size: 0.64rem;
         font-weight: 1000;
         letter-spacing: 1px;
         text-transform: uppercase;
         color: #8ea6d1;
         margin-bottom: 3px;
-    }
+    }}
 
-    .command-value {
+    .command-value {{
         font-size: 0.95rem;
         font-weight: 1000;
         color: #f4f8ff;
         line-height: 1.05;
-    }
+    }}
 
-    .market-banner {
+    .market-banner {{
         border-radius: 14px;
         padding: 10px 14px;
         margin-bottom: 12px;
@@ -106,33 +146,33 @@ st.markdown(
         box-shadow:
             0 8px 14px rgba(0,0,0,0.14),
             inset 0 1px 0 rgba(255,255,255,0.03);
-    }
+    }}
 
-    .banner-bull {
+    .banner-bull {{
         background:
             radial-gradient(circle at center, rgba(77,240,165,0.12), transparent 60%),
             linear-gradient(180deg, rgba(8,35,24,0.98), rgba(8,22,18,0.98));
         border-color: rgba(77,240,165,0.18);
         color: #4df0a5;
-    }
+    }}
 
-    .banner-bear {
+    .banner-bear {{
         background:
             radial-gradient(circle at center, rgba(255,111,142,0.12), transparent 60%),
             linear-gradient(180deg, rgba(44,10,18,0.98), rgba(24,8,12,0.98));
         border-color: rgba(255,111,142,0.18);
         color: #ff6f8e;
-    }
+    }}
 
-    .banner-neutral {
+    .banner-neutral {{
         background:
             radial-gradient(circle at center, rgba(255,216,106,0.10), transparent 60%),
             linear-gradient(180deg, rgba(44,34,8,0.98), rgba(22,18,8,0.98));
         border-color: rgba(255,216,106,0.16);
         color: #ffd86a;
-    }
+    }}
 
-    .section-shell {
+    .section-shell {{
         background: linear-gradient(180deg, rgba(16,24,40,0.98), rgba(10,16,28,0.98));
         border: 1px solid rgba(101,139,215,0.16);
         border-radius: 16px;
@@ -141,9 +181,9 @@ st.markdown(
         box-shadow:
             0 10px 18px rgba(0,0,0,0.16),
             inset 0 1px 0 rgba(255,255,255,0.03);
-    }
+    }}
 
-    .section-title {
+    .section-title {{
         display: inline-block;
         padding: 6px 12px;
         border-radius: 999px;
@@ -155,16 +195,16 @@ st.markdown(
         background: linear-gradient(180deg, rgba(21,31,52,0.96), rgba(12,18,31,0.96));
         border: 1px solid rgba(113,150,225,0.16);
         margin-bottom: 10px;
-    }
+    }}
 
-    .ticker-line {
+    .ticker-line {{
         font-size: 1.55rem;
         font-weight: 1000;
         margin-bottom: 0.35rem;
         letter-spacing: 1px;
-    }
+    }}
 
-    .price-box {
+    .price-box {{
         border-radius: 16px;
         padding: 12px 14px;
         margin-bottom: 10px;
@@ -174,65 +214,65 @@ st.markdown(
             0 8px 14px rgba(0,0,0,0.16);
         position: relative;
         overflow: hidden;
-    }
+    }}
 
-    .price-box-bull {
+    .price-box-bull {{
         background:
             radial-gradient(circle at center, rgba(77,240,165,0.12), transparent 60%),
             linear-gradient(180deg, rgba(8,35,24,0.98), rgba(8,22,18,0.98));
         border-color: rgba(77,240,165,0.18);
-    }
+    }}
 
-    .price-box-bear {
+    .price-box-bear {{
         background:
             radial-gradient(circle at center, rgba(255,111,142,0.12), transparent 60%),
             linear-gradient(180deg, rgba(44,10,18,0.98), rgba(24,8,12,0.98));
         border-color: rgba(255,111,142,0.18);
-    }
+    }}
 
-    .price-box-neutral {
+    .price-box-neutral {{
         background:
             radial-gradient(circle at center, rgba(255,216,106,0.10), transparent 60%),
             linear-gradient(180deg, rgba(44,34,8,0.98), rgba(22,18,8,0.98));
         border-color: rgba(255,216,106,0.16);
-    }
+    }}
 
-    .hero-price {
+    .hero-price {{
         font-size: 3.0rem;
         font-weight: 1000;
         line-height: 0.95;
         margin: 0;
-    }
+    }}
 
-    .hero-row {
+    .hero-row {{
         display: flex;
         justify-content: space-between;
         align-items: flex-end;
         gap: 12px;
-    }
+    }}
 
-    .day-change-box { text-align: right; }
+    .day-change-box {{ text-align: right; }}
 
-    .day-change-label {
+    .day-change-label {{
         color: #8ea6d1;
         font-size: 0.72rem;
         font-weight: 900;
         letter-spacing: 0.8px;
         text-transform: uppercase;
-    }
+    }}
 
-    .day-change-value {
+    .day-change-value {{
         font-size: 1.05rem;
         font-weight: 1000;
-    }
+    }}
 
-    .green { color: #4df0a5; }
-    .red { color: #ff6f8e; }
-    .gold { color: #ffd86a; }
-    .blue { color: #8dc8ff; }
-    .white { color: #f4f8ff; }
+    .green {{ color: #4df0a5; }}
+    .red {{ color: #ff6f8e; }}
+    .gold {{ color: #ffd86a; }}
+    .blue {{ color: #8dc8ff; }}
+    .white {{ color: #f4f8ff; }}
 
-    .signal-box {
+    .signal-box {{
         font-size: 0.98rem;
         font-weight: 1000;
         padding: 9px 12px;
@@ -242,33 +282,33 @@ st.markdown(
         border: 1px solid rgba(255,255,255,0.10);
         box-shadow: 0 8px 16px rgba(0,0,0,0.14);
         animation: pulse-glow 2.6s ease-in-out infinite;
-    }
+    }}
 
-    @keyframes pulse-glow {
-        0%   { box-shadow: 0 8px 16px rgba(0,0,0,0.14); }
-        50%  { box-shadow: 0 10px 20px rgba(0,0,0,0.18), 0 0 16px rgba(255,255,255,0.04); }
-        100% { box-shadow: 0 8px 16px rgba(0,0,0,0.14); }
-    }
+    @keyframes pulse-glow {{
+        0%   {{ box-shadow: 0 8px 16px rgba(0,0,0,0.14); }}
+        50%  {{ box-shadow: 0 10px 20px rgba(0,0,0,0.18), 0 0 16px rgba(255,255,255,0.04); }}
+        100% {{ box-shadow: 0 8px 16px rgba(0,0,0,0.14); }}
+    }}
 
-    .signal-green {
+    .signal-green {{
         background: rgba(77,240,165,0.12);
         border-color: rgba(77,240,165,0.28);
         color: #4df0a5;
-    }
+    }}
 
-    .signal-red {
+    .signal-red {{
         background: rgba(255,111,142,0.12);
         border-color: rgba(255,111,142,0.28);
         color: #ff6f8e;
-    }
+    }}
 
-    .signal-gold {
+    .signal-gold {{
         background: rgba(255,216,106,0.12);
         border-color: rgba(255,216,106,0.28);
         color: #ffd86a;
-    }
+    }}
 
-    .mode-chip {
+    .mode-chip {{
         display: inline-block;
         padding: 7px 11px;
         border-radius: 999px;
@@ -281,9 +321,9 @@ st.markdown(
         box-shadow:
             0 7px 14px rgba(0,0,0,0.11),
             inset 0 1px 0 rgba(255,255,255,0.02);
-    }
+    }}
 
-    .feed-shell {
+    .feed-shell {{
         width: 100%;
         overflow: hidden;
         white-space: nowrap;
@@ -293,29 +333,29 @@ st.markdown(
         padding: 9px 0;
         margin-bottom: 12px;
         box-shadow: 0 10px 18px rgba(0,0,0,0.16);
-    }
+    }}
 
-    .feed-text {
+    .feed-text {{
         display: inline-block;
         padding-left: 100%;
         animation: ticker-scroll 26s linear infinite;
         font-size: 0.88rem;
         font-weight: 1000;
         letter-spacing: 0.2px;
-    }
+    }}
 
-    @keyframes ticker-scroll {
-        0%   { transform: translateX(0); }
-        100% { transform: translateX(-100%); }
-    }
+    @keyframes ticker-scroll {{
+        0%   {{ transform: translateX(0); }}
+        100% {{ transform: translateX(-100%); }}
+    }}
 
-    .tiny-note {
+    .tiny-note {{
         color: #7f95b8;
         font-size: 0.78rem;
-    }
+    }}
 
     /* Left stack cards */
-    .pulse-card {
+    .pulse-card {{
         border-radius: 14px;
         padding: 14px;
         margin-bottom: 12px;
@@ -326,73 +366,73 @@ st.markdown(
         box-shadow:
             0 8px 14px rgba(0,0,0,0.14),
             inset 0 1px 0 rgba(255,255,255,0.03);
-    }
+    }}
 
-    .pulse-label {
+    .pulse-label {{
         font-size: 0.68rem;
         color: #8ea6d1;
         font-weight: 1000;
         letter-spacing: 1.1px;
         text-transform: uppercase;
         margin-bottom: 4px;
-    }
+    }}
 
-    .pulse-value {
+    .pulse-value {{
         font-size: 1.08rem;
         font-weight: 1000;
         margin-bottom: 2px;
-    }
+    }}
 
-    .gauge-shell {
+    .gauge-shell {{
         background: linear-gradient(180deg, rgba(12,18,31,0.96), rgba(9,13,24,0.96));
         border: 1px solid rgba(101,139,215,0.16);
         border-radius: 14px;
         padding: 14px;
         margin-bottom: 12px;
-    }
+    }}
 
-    .gauge-title {
+    .gauge-title {{
         font-size: 0.68rem;
         color: #8ea6d1;
         font-weight: 1000;
         letter-spacing: 1.1px;
         text-transform: uppercase;
         margin-bottom: 7px;
-    }
+    }}
 
-    .gauge-track {
+    .gauge-track {{
         width: 100%;
         height: 12px;
         border-radius: 999px;
         background: rgba(255,255,255,0.08);
         overflow: hidden;
         box-shadow: inset 0 1px 3px rgba(0,0,0,0.35);
-    }
+    }}
 
-    .gauge-fill {
+    .gauge-fill {{
         height: 100%;
         border-radius: 999px;
         background: linear-gradient(90deg, #00e676 0%, #ffd740 55%, #ff5252 100%);
         box-shadow: 0 0 16px rgba(141,200,255,0.18);
         animation: gauge-breathe 2.8s ease-in-out infinite;
-    }
+    }}
 
-    @keyframes gauge-breathe {
-        0%   { filter: brightness(1); }
-        50%  { filter: brightness(1.12); }
-        100% { filter: brightness(1); }
-    }
+    @keyframes gauge-breathe {{
+        0%   {{ filter: brightness(1); }}
+        50%  {{ filter: brightness(1.12); }}
+        100% {{ filter: brightness(1); }}
+    }}
 
-    .gauge-caption {
+    .gauge-caption {{
         display: flex;
         justify-content: space-between;
         margin-top: 7px;
         font-size: 0.76rem;
         color: #8ea6d1;
         font-weight: 900;
-    }
+    }}
 
-    .go-shell {
+    .go-shell {{
         border-radius: 14px;
         padding: 14px;
         margin-bottom: 12px;
@@ -402,79 +442,79 @@ st.markdown(
         box-shadow:
             0 10px 18px rgba(0,0,0,0.16),
             inset 0 1px 0 rgba(255,255,255,0.03);
-    }
+    }}
 
-    .go-green {
+    .go-green {{
         background:
             radial-gradient(circle at center, rgba(77,240,165,0.12), transparent 60%),
             linear-gradient(180deg, rgba(8,35,24,0.98), rgba(8,22,18,0.98));
         border-color: rgba(77,240,165,0.18);
         color: #4df0a5;
-    }
+    }}
 
-    .go-red {
+    .go-red {{
         background:
             radial-gradient(circle at center, rgba(255,111,142,0.12), transparent 60%),
             linear-gradient(180deg, rgba(44,10,18,0.98), rgba(24,8,12,0.98));
         border-color: rgba(255,111,142,0.18);
         color: #ff6f8e;
-    }
+    }}
 
-    .go-gold {
+    .go-gold {{
         background:
             radial-gradient(circle at center, rgba(255,216,106,0.10), transparent 60%),
             linear-gradient(180deg, rgba(44,34,8,0.98), rgba(22,18,8,0.98));
         border-color: rgba(255,216,106,0.16);
         color: #ffd86a;
-    }
+    }}
 
-    .go-label {
+    .go-label {{
         font-size: 0.70rem;
         letter-spacing: 1.1px;
         text-transform: uppercase;
         opacity: 0.9;
         margin-bottom: 5px;
-    }
+    }}
 
-    .go-value {
+    .go-value {{
         font-size: 1.30rem;
         line-height: 1.1;
-    }
+    }}
 
-    .radar-shell {
+    .radar-shell {{
         background: linear-gradient(180deg, rgba(12,18,31,0.96), rgba(9,13,24,0.96));
         border: 1px solid rgba(101,139,215,0.16);
         border-radius: 14px;
         padding: 14px;
         margin-bottom: 12px;
-    }
+    }}
 
-    .radar-grid {
+    .radar-grid {{
         display: grid;
         grid-template-columns: repeat(5, 1fr);
         gap: 7px;
         margin-top: 8px;
-    }
+    }}
 
-    .radar-dot {
+    .radar-dot {{
         height: 14px;
         border-radius: 999px;
         background: rgba(255,255,255,0.08);
         border: 1px solid rgba(255,255,255,0.06);
         box-shadow: inset 0 1px 2px rgba(0,0,0,0.25);
-    }
+    }}
 
-    .radar-on {
+    .radar-on {{
         background: linear-gradient(180deg, rgba(141,200,255,0.95), rgba(58,132,255,0.88));
         box-shadow: 0 0 12px rgba(58,132,255,0.35);
-    }
+    }}
 
-    .radar-hot {
+    .radar-hot {{
         background: linear-gradient(180deg, rgba(255,216,106,0.95), rgba(255,111,142,0.90));
         box-shadow: 0 0 12px rgba(255,111,142,0.35);
-    }
+    }}
 
-    .mini-alert {
+    .mini-alert {{
         border-radius: 14px;
         padding: 10px 12px;
         margin-bottom: 10px;
@@ -484,9 +524,9 @@ st.markdown(
             0 8px 14px rgba(0,0,0,0.12),
             inset 0 1px 0 rgba(255,255,255,0.02);
         font-size: 0.90rem;
-    }
+    }}
 
-    .commentary-shell {
+    .commentary-shell {{
         background:
             radial-gradient(circle at top right, rgba(141,200,255,0.08), transparent 40%),
             linear-gradient(180deg, rgba(16,24,40,0.98), rgba(10,16,28,0.98));
@@ -498,43 +538,43 @@ st.markdown(
             0 10px 18px rgba(0,0,0,0.16),
             inset 0 1px 0 rgba(255,255,255,0.03);
         min-height: 240px;
-    }
+    }}
 
-    .commentary-title {
+    .commentary-title {{
         font-size: 0.72rem;
         color: #8ea6d1;
         font-weight: 1000;
         letter-spacing: 1.1px;
         text-transform: uppercase;
         margin-bottom: 8px;
-    }
+    }}
 
-    .commentary-text {
+    .commentary-text {{
         color: #f4f8ff;
         font-size: 1.00rem;
         line-height: 1.55;
         font-weight: 500;
         white-space: pre-wrap;
-    }
+    }}
 
-    .rolling-item {
+    .rolling-item {{
         padding: 6px 0;
         border-bottom: 1px solid rgba(255,255,255,0.04);
         font-size: 0.90rem;
-    }
-    .rolling-item:last-child { border-bottom: none; }
+    }}
+    .rolling-item:last-child {{ border-bottom: none; }}
 
     /* Scanner styling */
-    .scanner-shell {
+    .scanner-shell {{
         background: linear-gradient(180deg, rgba(16,24,40,0.98), rgba(10,16,28,0.98));
         border: 1px solid rgba(101,139,215,0.16);
         border-radius: 16px;
         padding: 12px;
         margin-bottom: 12px;
         box-shadow: 0 10px 18px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.03);
-    }
+    }}
 
-    .scan-row {
+    .scan-row {{
         border-radius: 14px;
         padding: 10px 12px;
         margin-bottom: 8px;
@@ -544,36 +584,36 @@ st.markdown(
         gap: 10px;
         align-items: center;
         box-shadow: 0 8px 14px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.02);
-    }
+    }}
 
-    .scan-green {
+    .scan-green {{
         background:
             radial-gradient(circle at center, rgba(77,240,165,0.10), transparent 58%),
             linear-gradient(180deg, rgba(8,35,24,0.94), rgba(8,22,18,0.94));
         border-color: rgba(77,240,165,0.20);
-    }
+    }}
 
-    .scan-yellow {
+    .scan-yellow {{
         background:
             radial-gradient(circle at center, rgba(255,216,106,0.10), transparent 58%),
             linear-gradient(180deg, rgba(44,34,8,0.94), rgba(22,18,8,0.94));
         border-color: rgba(255,216,106,0.20);
-    }
+    }}
 
-    .scan-red {
+    .scan-red {{
         background:
             radial-gradient(circle at center, rgba(255,111,142,0.10), transparent 58%),
             linear-gradient(180deg, rgba(44,10,18,0.94), rgba(24,8,12,0.94));
         border-color: rgba(255,111,142,0.20);
-    }
+    }}
 
-    .scan-symbol {
+    .scan-symbol {{
         font-weight: 1000;
         letter-spacing: 0.8px;
         font-size: 1.0rem;
-    }
+    }}
 
-    .scan-pill {
+    .scan-pill {{
         display: inline-block;
         padding: 5px 10px;
         border-radius: 999px;
@@ -585,50 +625,27 @@ st.markdown(
         background: linear-gradient(180deg, rgba(21,31,52,0.86), rgba(12,18,31,0.86));
         color: #f4f8ff;
         width: fit-content;
-    }
+    }}
 
-    .scan-pill-green { border-color: rgba(77,240,165,0.28); color: #4df0a5; }
-    .scan-pill-yellow { border-color: rgba(255,216,106,0.28); color: #ffd86a; }
-    .scan-pill-red { border-color: rgba(255,111,142,0.28); color: #ff6f8e; }
+    .scan-pill-green {{ border-color: rgba(77,240,165,0.28); color: #4df0a5; }}
+    .scan-pill-yellow {{ border-color: rgba(255,216,106,0.28); color: #ffd86a; }}
+    .scan-pill-red {{ border-color: rgba(255,111,142,0.28); color: #ff6f8e; }}
 
-    .scan-metric {
+    .scan-metric {{
         font-size: 0.92rem;
         font-weight: 900;
         color: #f4f8ff;
-    }
+    }}
 
-    .scan-sub {
+    .scan-sub {{
         font-size: 0.72rem;
         font-weight: 900;
         color: #8ea6d1;
         letter-spacing: 0.6px;
         text-transform: uppercase;
-    }
+    }}
 
-    div[data-testid="stMetric"] {
-        background: linear-gradient(180deg, rgba(15,24,40,0.98), rgba(9,16,28,0.98));
-        border: 1px solid rgba(101,139,215,0.14);
-        border-radius: 14px;
-        padding: 7px 9px;
-        box-shadow:
-            0 8px 14px rgba(0,0,0,0.12),
-            inset 0 1px 0 rgba(255,255,255,0.02);
-    }
-
-    div[data-testid="stMetricLabel"] > div {
-        color: #8ea6d1 !important;
-        font-weight: 800;
-        letter-spacing: 0.4px;
-        font-size: 0.76rem !important;
-    }
-
-    div[data-testid="stMetricValue"] {
-        color: #f4f8ff !important;
-        font-weight: 1000 !important;
-        font-size: 1.45rem !important;
-    }
-
-    div[data-testid="stButton"] > button {
+    div[data-testid="stButton"] > button {{
         border-radius: 12px;
         border: 1px solid rgba(118,157,232,0.20);
         background: linear-gradient(180deg, #15213b 0%, #0d1728 100%);
@@ -638,25 +655,46 @@ st.markdown(
         box-shadow:
             0 8px 14px rgba(0,0,0,0.16),
             inset 0 1px 0 rgba(255,255,255,0.03);
-    }
+    }}
 
     div[data-baseweb="select"] > div,
-    div[role="radiogroup"] { background: transparent; }
+    div[role="radiogroup"] {{ background: transparent; }}
 
-    @media (max-width: 1100px) {
-        .command-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
-        .hero-price { font-size: 2.6rem; }
-        .main-title { font-size: 2.25rem; }
-        .scan-row { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 1100px) {{
+        .command-grid {{ grid-template-columns: repeat(2, minmax(120px, 1fr)); }}
+        .hero-price {{ font-size: 2.6rem; }}
+        .main-title {{ font-size: 2.25rem; }}
+        .scan-row {{ grid-template-columns: 1fr; }}
+        .top-logo img {{ width: 70px; }}
+    }}
 </style>
     """,
     unsafe_allow_html=True
 )
 
+# Render logo if present (non-fatal if missing)
+if LOGO_B64:
+    st.markdown(
+        f"""
+<div class="top-logo">
+  <img src="data:image/jpeg;base64,{LOGO_B64}" alt="Logo" />
+</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 # -----------------------------
 # HELPERS
 # -----------------------------
+TICKERS = [
+    "SPY", "QQQ", "IWM", "DIA",
+    "AAPL", "NVDA", "TSLA", "AMD", "META",
+    "AMZN", "MSFT", "NBIS", "NFLX", "PLTR",
+    "MSTR", "COIN", "SOFI", "HOOD", "INTC",
+    "MU", "AVGO", "SMCI", "ARM", "BABA",
+    "XOM", "OXY", "USO"
+]
+
 def fmt_num(x):
     try:
         return f"{float(x):.2f}"
@@ -791,16 +829,12 @@ def calc_go_signal(sig, bias):
 
     if price is None:
         return "WAIT"
-
     if bias == "BULLISH" and calls_above is not None and price >= calls_above and pressure >= 60:
         return "GO LONG"
-
     if bias == "BEARISH" and puts_below is not None and price <= puts_below and pressure >= 60:
         return "GO SHORT"
-
     if "CHOP" in state:
         return "WAIT"
-
     return "WAIT"
 
 def build_pressure_gauge(value):
@@ -908,7 +942,6 @@ def build_go_signal(go_signal, sound_armed=False):
 
 def build_commentary_box(text):
     safe_text = text if text else "No commentary available."
-    # Escape HTML-ish chars safely (basic)
     safe_text = safe_text.replace("<", "&lt;").replace(">", "&gt;")
     st.markdown(
         f"""
@@ -923,23 +956,20 @@ def build_commentary_box(text):
 def classify_scan_color(sig: dict) -> tuple[str, str, str]:
     """
     Returns: (row_class, pill_class, label)
-    Green = strong directional (bull/bear) + decent pressure
-    Yellow = chop/neutral or weak pressure
-    Red = strong bearish w/ pressure OR breakdown signals
+    Green = strong bullish breakout/trend + pressure
+    Red   = strong bearish breakdown/trend + pressure
+    Yellow= neutral/chop/low pressure
     """
     bias = str(safe_get(sig, "bias", "NEUTRAL")).upper()
     state = str(safe_get(sig, "market_state", safe_get(sig, "regime", "N/A"))).upper()
     pressure = safe_float(safe_get(sig, "pressure", 0), 0) or 0
 
-    # Strong bears / breakdowns
     if ("BEAR" in state or "BREAKDOWN" in state) and pressure >= 60:
         return ("scan-red", "scan-pill-red", "RED")
 
-    # Strong bulls / breakouts
     if ("BULL" in state or "BREAKOUT" in state) and pressure >= 60 and bias == "BULLISH":
         return ("scan-green", "scan-pill-green", "GREEN")
 
-    # Bias-based fallback
     if bias == "BEARISH" and pressure >= 65:
         return ("scan-red", "scan-pill-red", "RED")
     if bias == "BULLISH" and pressure >= 65:
@@ -949,7 +979,6 @@ def classify_scan_color(sig: dict) -> tuple[str, str, str]:
 
 def render_scanner_row(ticker: str, sig: dict):
     row_cls, pill_cls, label = classify_scan_color(sig)
-
     price = fmt_num(safe_get(sig, "price"))
     state = safe_get(sig, "market_state", safe_get(sig, "regime", "N/A"))
     bias = safe_get(sig, "bias", "NEUTRAL")
@@ -998,9 +1027,9 @@ def render_scanner_row(ticker: str, sig: dict):
 st.markdown('<div class="main-title">Lockout Signals</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtle">Command center upgrade • premium UI layer • backend brain untouched</div>', unsafe_allow_html=True)
 
-# Autorefresh (if available)
+# Autorefresh (optional dependency)
 try:
-    from streamlit import st_autorefresh
+    from streamlit_autorefresh import st_autorefresh
 except Exception:
     st_autorefresh = None
 
@@ -1022,63 +1051,38 @@ with top5:
 
 control1, control2, control3 = st.columns([2, 2, 2])
 with control1:
-    selected_ticker = st.selectbox(
-        "Select Ticker",
-        [
-            "SPY", "QQQ", "IWM", "DIA",
-            "AAPL", "NVDA", "TSLA", "AMD", "META",
-            "AMZN", "MSFT", "NBIS", "NFLX", "PLTR",
-            "MSTR", "COIN", "SOFI", "HOOD", "INTC",
-            "MU", "AVGO", "SMCI", "ARM", "BABA",
-            "XOM", "OXY", "USO"
-        ],
-        index=0
-    )
+    selected_ticker = st.selectbox("Select Ticker", TICKERS, index=0)
 with control2:
     mode = st.radio("Mode", ["Aggressive", "Full Send"], horizontal=True, index=0)
 with control3:
     scan_every = st.selectbox("Auto Scan Interval", [15, 30, 60], index=1)
 
+# Drive autorefresh (if dependency is installed)
 if auto_scan and st_autorefresh is not None:
     st_autorefresh(interval=int(scan_every * 1000), key="lockout_autoscan")
 elif auto_scan and st_autorefresh is None:
-    st.info("Auto Scan needs a newer Streamlit build. You can still use Scan Now.")
+    st.info("Auto Scan requires `streamlit-autorefresh` in requirements.txt. Scan Now still works.")
 
 # -----------------------------
-# WATCHLIST SCANNER (COLOR CODED)
+# WATCHLIST SCANNER
 # -----------------------------
 st.markdown('<div class="scanner-shell">', unsafe_allow_html=True)
 section_title("Watchlist Scanner")
 
 watch_default = ["SPY", "QQQ", "NVDA", "TSLA", "AAPL", "MSFT", "AMZN", "META", "AMD", "OXY", "USO"]
-watchlist = st.multiselect(
-    "Watchlist",
-    options=[
-        "SPY", "QQQ", "IWM", "DIA",
-        "AAPL", "NVDA", "TSLA", "AMD", "META",
-        "AMZN", "MSFT", "NBIS", "NFLX", "PLTR",
-        "MSTR", "COIN", "SOFI", "HOOD", "INTC",
-        "MU", "AVGO", "SMCI", "ARM", "BABA",
-        "XOM", "OXY", "USO"
-    ],
-    default=watch_default
-)
+watchlist = st.multiselect("Watchlist", options=TICKERS, default=watch_default)
 
 scan_now = st.button("Scan Now", use_container_width=True)
 
-# We scan if:
-# - user hits Scan Now
-# - OR Auto Scan is on (autorefresh will rerun the script)
+# Scan if button hit OR autoscan rerun is happening
 should_scan = scan_now or auto_scan
 
 if should_scan:
-    # Slightly defensive: avoid empty list
     if not watchlist:
         st.warning("Add at least 1 ticker to the watchlist.")
     else:
-        # scan results
         for t in watchlist:
-            s = generate_signal(t, interval="5m")  # brain call unchanged
+            s = generate_signal(t, interval="5m")  # ✅ brain call unchanged
             if isinstance(s, dict) and "error" in s:
                 st.markdown(
                     f"""
@@ -1103,7 +1107,7 @@ if should_scan:
             else:
                 render_scanner_row(t, s)
 
-st.markdown('</div>', unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
 # -----------------------------
 # DATA (BRAIN CALLS — untouched)
@@ -1181,7 +1185,10 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.markdown(f'<div class="{market_banner_class(bias)}">MARKET CONDITION: {market_condition}</div>', unsafe_allow_html=True)
+st.markdown(
+    f'<div class="{market_banner_class(bias)}">MARKET CONDITION: {market_condition}</div>',
+    unsafe_allow_html=True
+)
 
 st.markdown(
     f"""
@@ -1211,9 +1218,12 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-st.markdown('</div>', unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown(f'<div class="signal-box {signal_class(signal_text)}">{signal_text}</div>', unsafe_allow_html=True)
+st.markdown(
+    f'<div class="signal-box {signal_class(signal_text)}">{signal_text}</div>',
+    unsafe_allow_html=True
+)
 
 chip_html = f"""
 <span class="mode-chip">{bias}</span>
@@ -1223,7 +1233,7 @@ chip_html = f"""
 <span class="mode-chip">Mode: {mode.upper()}</span>
 """
 st.markdown(chip_html, unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
 # -----------------------------
 # BODY LAYOUT (center = commentary)
@@ -1246,7 +1256,7 @@ with center:
         f"<strong>Alerts:</strong> {'ARMED' if sound_alerts else 'OFF'}",
         unsafe_allow_html=True
     )
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 with right:
     st.markdown('<div class="section-shell">', unsafe_allow_html=True)
@@ -1256,72 +1266,10 @@ with right:
     st.metric("RSI", rsi_text)
     st.metric("Session", session_status)
     st.metric("Pressure", f"{pressure_value}/100")
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # -----------------------------
-# MAIN DATA PANELS
-# -----------------------------
-col_left, col_right = st.columns(2)
-
-with col_left:
-    st.markdown('<div class="section-shell">', unsafe_allow_html=True)
-    section_title("Bias + Structure")
-    a1, a2 = st.columns(2)
-    with a1:
-        st.metric("Bias", bias)
-        st.metric("RSI", fmt_num(safe_get(sig, "rsi")))
-        st.metric("EMA9", fmt_num(safe_get(sig, "ema9")))
-        st.metric("VWAP", fmt_num(safe_get(sig, "vwap")))
-    with a2:
-        st.metric("State", state)
-        st.metric("EMA20", fmt_num(safe_get(sig, "ema20")))
-        st.metric("Session", session_status)
-        st.metric("Price", price_text)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with col_right:
-    st.markdown('<div class="section-shell">', unsafe_allow_html=True)
-    section_title("Battle Zones + Targets")
-    b1, b2 = st.columns(2)
-    with b1:
-        st.metric("Calls Favored Above", fmt_num(safe_get(sig, "calls_favored_above")))
-        st.metric("Chop Zone", f'{fmt_num(safe_get(sig, "chop_low"))} - {fmt_num(safe_get(sig, "chop_high"))}')
-        st.metric("Invalidation", fmt_num(safe_get(sig, "invalidation", safe_get(sig, "invalid"))))
-        st.metric("Likely Up", fmt_num(safe_get(sig, "likely_up", safe_get(sig, "likely"))))
-        st.metric("Likely Down", fmt_num(safe_get(sig, "likely_down")))
-    with b2:
-        st.metric("Puts Favored Below", fmt_num(safe_get(sig, "puts_favored_below")))
-        st.metric("Warning Line", fmt_num(safe_get(sig, "warning_line")))
-        st.metric("Stretch Up", fmt_num(safe_get(sig, "stretch_up", safe_get(sig, "stretch"))))
-        st.metric("Stretch Down", fmt_num(safe_get(sig, "stretch_down")))
-        st.metric("Pressure", f'{safe_get(sig, "pressure", "N/A")}/100')
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="section-shell">', unsafe_allow_html=True)
-    section_title("Session Levels")
-    s1, s2, s3, s4 = st.columns(4)
-    with s1:
-        st.metric("PM High", fmt_num(safe_get(sig, "pm_high")))
-    with s2:
-        st.metric("PM Low", fmt_num(safe_get(sig, "pm_low")))
-    with s3:
-        st.metric("OR High", fmt_num(safe_get(sig, "or_high")))
-    with s4:
-        st.metric("OR Low", fmt_num(safe_get(sig, "or_low")))
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# -----------------------------
-# OPTIONAL FEED DETAILS
-# -----------------------------
-if isinstance(feed_items, list) and len(feed_items) > 0:
-    st.markdown('<div class="section-shell">', unsafe_allow_html=True)
-    section_title("Rolling Feed")
-    for item in feed_items[:6]:
-        st.markdown(f'<div class="rolling-item">• {item}</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# -----------------------------
-# CHART
+# OPTIONAL CHART
 # -----------------------------
 if show_charts:
     with st.expander(f"Open {selected_ticker} Chart Deck"):
