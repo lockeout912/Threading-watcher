@@ -1078,8 +1078,8 @@ with control1:
         [
             "SPY", "QQQ", "IWM", "DIA",
             "AAPL", "NVDA", "TSLA", "AMD", "META",
-            "AMZN", "MSFT", "NBIS", "NFLX", "PLTR",
-            "MSTR", "COIN", "SOFI", "HOOD", "INTC",
+            "AMZN", "GME", "NBIS", "AMC", "PLTR",
+            "MSTR", "U", "SOFI", "HOOD", "INTC",
             "MU", "AVGO", "SMCI", "ARM", "BABA",
             "XOM", "OXY", "USO"
         ],
